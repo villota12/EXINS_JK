@@ -1,0 +1,197 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "User profile with role-based access control",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["owner", "staff", "customer"] },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "category": {
+      "title": "Category",
+      "description": "Product apparel category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "color": { "type": "string" },
+        "inStock": { "type": "number" }
+      },
+      "required": ["id", "name", "description", "color"]
+    },
+    "supplier": {
+      "title": "Supplier",
+      "description": "Bale supplier contact and sourcing details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "contactPerson": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "description": { "type": "string" },
+        "totalBalesSourced": { "type": "number" }
+      },
+      "required": ["id", "name", "contactPerson", "phone", "totalBalesSourced"]
+    },
+    "bale": {
+      "title": "Bale",
+      "description": "Wholesale clothing bale batch in inventory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "supplierId": { "type": "string" },
+        "totalPrice": { "type": "number" },
+        "quantity": { "type": "number" },
+        "pricePerPiece": { "type": "number" },
+        "description": { "type": "string" },
+        "totalSales": { "type": "number" },
+        "status": { "type": "string", "enum": ["sealed", "opened", "depleted"] },
+        "dateAdded": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "categoryId", "supplierId", "totalPrice", "quantity", "status"]
+    },
+    "product": {
+      "title": "Product",
+      "description": "Apparel item with barcode and stock level",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "baleId": { "type": "string" },
+        "quantity": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "size": { "type": "string" },
+        "image": { "type": "string" },
+        "link": { "type": "string" },
+        "description": { "type": "string" },
+        "barcode": { "type": "string" },
+        "dateAdded": { "type": "string" }
+      },
+      "required": ["id", "name", "categoryId", "quantity", "sellingPrice", "costPrice", "barcode"]
+    },
+    "order": {
+      "title": "Order",
+      "description": "Customer purchase order from POS or online showcase",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "contactNumber": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "paymentType": { "type": "string", "enum": ["pay_now", "down_payment"] },
+        "downPaymentAmount": { "type": "number" },
+        "remainingBalance": { "type": "number" },
+        "receiptImage": { "type": "string" },
+        "courier": { "type": "string", "enum": ["lbc", "lalamove", "jnt"] },
+        "status": { "type": "string", "enum": ["pending", "preparing_the_order", "dropped_to_courier", "completed", "cancelled"] },
+        "orderDate": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "orderNumber", "customerName", "totalAmount", "status", "orderDate"]
+    },
+    "expenseAccount": {
+      "title": "ExpenseAccount",
+      "description": "Expense budget category and tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "monthlyBudget": { "type": "number" },
+        "description": { "type": "string" },
+        "totalSpent": { "type": "number" }
+      },
+      "required": ["id", "name", "monthlyBudget", "totalSpent"]
+    },
+    "expense": {
+      "title": "Expense",
+      "description": "Recorded operating expense transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "accountId": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["cash", "gcash", "bank_transfer", "card"] },
+        "receiptImage": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "accountId", "amount", "date", "paymentMethod"]
+    },
+    "transaction": {
+      "title": "Transaction",
+      "description": "Cash flow journal inflow or outflow entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "type": { "type": "string", "enum": ["inflow", "outflow"] },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["cash", "gcash", "bank_transfer", "card"] },
+        "inflow": { "type": "number" },
+        "outflow": { "type": "number" },
+        "referenceId": { "type": "string" }
+      },
+      "required": ["id", "date", "type", "category", "description", "inflow", "outflow"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "User profiles with role and profile metadata"
+    },
+    "/categories/{categoryId}": {
+      "schema": "category",
+      "description": "Store apparel categories"
+    },
+    "/suppliers/{supplierId}": {
+      "schema": "supplier",
+      "description": "Supplier directories"
+    },
+    "/bales/{baleId}": {
+      "schema": "bale",
+      "description": "Bales of inventory"
+    },
+    "/products/{productId}": {
+      "schema": "product",
+      "description": "Individual items and barcode records"
+    },
+    "/orders/{orderId}": {
+      "schema": "order",
+      "description": "POS sales and online orders"
+    },
+    "/expenseAccounts/{accountId}": {
+      "schema": "expenseAccount",
+      "description": "Expense budget accounts"
+    },
+    "/expenses/{expenseId}": {
+      "schema": "expense",
+      "description": "Store expense records"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "transaction",
+      "description": "Financial cashflow transactions"
+    }
+  }
+}

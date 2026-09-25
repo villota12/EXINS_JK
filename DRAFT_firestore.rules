@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner() {
+      return isSignedIn() && (
+        request.auth.token.role == 'owner' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner'
+      );
+    }
+
+    function isStaffOrOwner() {
+      return isSignedIn() && (
+        request.auth.token.role in ['owner', 'staff'] ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['owner', 'staff']
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Health/connection test document
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // User profiles & auth info
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isOwner());
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      allow update: if isSignedIn() && (request.auth.uid == userId || isOwner()) && isValidId(userId);
+      allow delete: if isOwner();
+    }
+
+    // Categories
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isStaffOrOwner() && isValidId(categoryId);
+    }
+
+    // Suppliers
+    match /suppliers/{supplierId} {
+      allow read: if isStaffOrOwner();
+      allow write: if isStaffOrOwner() && isValidId(supplierId);
+    }
+
+    // Bales
+    match /bales/{baleId} {
+      allow read: if isStaffOrOwner();
+      allow write: if isStaffOrOwner() && isValidId(baleId);
+    }
+
+    // Products (Showcase & Inventory)
+    match /products/{productId} {
+      allow read: if true; // Public catalog for showcase shop
+      allow write: if isStaffOrOwner() && isValidId(productId);
+    }
+
+    // Orders (POS and Customer showcase orders)
+    match /orders/{orderId} {
+      allow read: if isStaffOrOwner() || (isSignedIn() && resource.data.customerId == request.auth.uid);
+      allow create: if isValidId(orderId) && (
+        isSignedIn() || request.resource.data.totalAmount >= 0
+      );
+      allow update, delete: if isStaffOrOwner() && isValidId(orderId);
+    }
+
+    // Finance - Expense Accounts (Owner only)
+    match /expenseAccounts/{accountId} {
+      allow read, write: if isOwner() && isValidId(accountId);
+    }
+
+    // Finance - Expenses (Owner only)
+    match /expenses/{expenseId} {
+      allow read, write: if isOwner() && isValidId(expenseId);
+    }
+
+    // Finance - Cashflow Transactions (Owner only)
+    match /transactions/{transactionId} {
+      allow read, write: if isOwner() && isValidId(transactionId);
+    }
+  }
+}
