@@ -14,6 +14,7 @@ import {
   ShoppingCart,
   RotateCcw,
   Sparkles,
+  Bot,
 } from 'lucide-react';
 import { UserRole } from '../types';
 
@@ -25,7 +26,6 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ onOpenCart, onOpenAuth }) => {
   const {
     currentUser,
-    switchRole,
     isDark,
     toggleTheme,
     activeTab,
@@ -35,6 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart, onOpenAuth }) => {
     isFirebaseConnected,
   } = useStore();
 
+  const isGuest = currentUser.id === 'user-guest' || currentUser.id === 'guest' || !currentUser.email;
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   // Available navigation items based on User Role limitations:
@@ -64,6 +65,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart, onOpenAuth }) => {
       { id: 'forecasting', label: 'Forecasting', icon: TrendingUp },
       { id: 'barcode', label: 'Barcode', icon: Barcode },
       { id: 'pos', label: 'POS', icon: Calculator },
+      { id: 'ai', label: 'AI Advisor', icon: Bot, isAi: true },
     ];
   };
 
@@ -120,6 +122,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart, onOpenAuth }) => {
                   className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     isActive
                       ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-md shadow-orange-900/30'
+                      : tab.id === 'ai'
+                      ? 'border border-orange-500/40 text-orange-400 bg-orange-500/10 hover:bg-orange-500/20'
                       : isDark
                       ? 'text-stone-300 hover:text-white hover:bg-stone-800/60'
                       : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
@@ -145,24 +149,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart, onOpenAuth }) => {
             >
               <span className={`w-2 h-2 rounded-full ${isFirebaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
               <span className="hidden md:inline">{isFirebaseConnected ? 'Firebase Cloud' : 'Firebase Sync'}</span>
-            </div>
-
-            {/* Quick Role Switcher for seamless testing */}
-            <div className="hidden sm:flex items-center gap-1 p-1 rounded-xl bg-stone-800/40 border border-orange-500/20 text-xs">
-              <span className="px-2 py-1 text-[11px] text-stone-400 font-medium">Role:</span>
-              {(['owner', 'staff', 'customer'] as UserRole[]).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => switchRole(r)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold capitalize transition-all cursor-pointer ${
-                    currentUser.role === r
-                      ? 'bg-orange-600 text-white shadow-sm'
-                      : 'text-stone-400 hover:text-stone-200 hover:bg-stone-700/50'
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
             </div>
 
             {/* Shopping Bag Button (Available for all to inspect cart) */}
@@ -196,13 +182,17 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart, onOpenAuth }) => {
             <button
               onClick={onOpenAuth}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
-                roleLabels[currentUser.role].color
+                isGuest
+                  ? 'bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white border-orange-500 shadow-md'
+                  : roleLabels[currentUser.role].color
               }`}
-              title="Click to Switch User / Login / Signup"
+              title={isGuest ? 'Sign In or Register' : 'Account Profile'}
             >
               <UserCheck className="w-4 h-4" />
-              <span className="hidden md:inline">{currentUser.name.split(' ')[0]}</span>
-              <span className="text-[10px] uppercase tracking-wide opacity-80">({currentUser.role})</span>
+              <span className="inline">{isGuest ? 'Sign In / Register' : currentUser.name.split(' ')[0]}</span>
+              {!isGuest && (
+                <span className="text-[10px] uppercase tracking-wide opacity-80">({currentUser.role})</span>
+              )}
             </button>
 
             {/* Reset Data for Testing */}
@@ -232,6 +222,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart, onOpenAuth }) => {
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
                   isActive
                     ? 'bg-orange-600 text-white'
+                    : tab.id === 'ai'
+                    ? 'border border-orange-500/40 text-orange-400 bg-orange-500/10'
                     : isDark
                     ? 'text-stone-300 hover:bg-stone-800'
                     : 'text-stone-600 hover:bg-stone-100'

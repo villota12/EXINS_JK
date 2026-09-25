@@ -8,6 +8,7 @@ service cloud.firestore {
 
     function isOwner() {
       return isSignedIn() && (
+        request.auth.token.email == 'villotafrankedward@gmail.com' ||
         request.auth.token.role == 'owner' ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner'
       );
@@ -15,6 +16,7 @@ service cloud.firestore {
 
     function isStaffOrOwner() {
       return isSignedIn() && (
+        request.auth.token.email in ['villotafrankedward@gmail.com', 'frankvillota905@gmail.com'] ||
         request.auth.token.role in ['owner', 'staff'] ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['owner', 'staff']
       );

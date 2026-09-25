@@ -28,11 +28,17 @@ export const InventoryManagement: React.FC = () => {
     setInventoryTab,
     categories,
     addCategory,
+    updateCategory,
+    deleteCategory,
     suppliers,
     addSupplier,
+    updateSupplier,
+    deleteSupplier,
     bales,
     addBale,
+    updateBale,
     updateBaleStatus,
+    deleteBale,
     products,
     addProduct,
     updateProduct,
@@ -40,24 +46,20 @@ export const InventoryManagement: React.FC = () => {
   } = useStore();
 
   // Permitted tabs based on role:
-  // Staff: only 'bales', 'categories', 'products'
-  // Owner: 'bales', 'categories', 'products', 'suppliers'
+  // Both Staff and Owner can access and manage: 'bales', 'categories', 'products', 'suppliers'
   const allowedTabs = useMemo(() => {
-    const list: { id: 'bales' | 'categories' | 'products' | 'suppliers'; label: string; icon: any }[] = [
+    return [
       { id: 'bales', label: 'Bale Management', icon: Layers },
       { id: 'categories', label: 'Product Categories', icon: Package },
       { id: 'products', label: 'Product List', icon: ListOrdered },
-    ];
-    if (currentUser.role === 'owner') {
-      list.push({ id: 'suppliers', label: 'Bale Suppliers', icon: Truck });
-    }
-    return list;
-  }, [currentUser.role]);
+      { id: 'suppliers', label: 'Bale Suppliers', icon: Truck },
+    ] as { id: 'bales' | 'categories' | 'products' | 'suppliers'; label: string; icon: any }[];
+  }, []);
 
-  // Ensure user cannot stay on suppliers tab if staff
-  const currentTab = currentUser.role === 'staff' && inventoryTab === 'suppliers' ? 'bales' : inventoryTab;
+  const currentTab = inventoryTab;
 
   // ================= 1. BALE MANAGEMENT FORM STATE =================
+  const [editingBaleId, setEditingBaleId] = useState<string | null>(null);
   const [baleName, setBaleName] = useState('');
   const [baleCategory, setBaleCategory] = useState(categories[0]?.id || '');
   const [baleSupplier, setBaleSupplier] = useState(suppliers[0]?.id || '');
@@ -81,9 +83,41 @@ export const InventoryManagement: React.FC = () => {
     return `EXINS-BALE-${String(nextNum).padStart(3, '0')}`;
   }, [bales.length]);
 
+  const handleStartEditBale = (bale: Bale) => {
+    setEditingBaleId(bale.id);
+    setBaleName(bale.name);
+    setBaleCategory(bale.categoryId);
+    setBaleSupplier(bale.supplierId);
+    setBalePrice(bale.totalPrice);
+    setBaleQty(bale.quantity);
+    setBaleDesc(bale.description || '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEditBale = () => {
+    setEditingBaleId(null);
+    setBaleName('');
+    setBalePrice('');
+    setBaleQty('');
+    setBaleDesc('');
+  };
+
   const handleSaveBale = (e: React.FormEvent) => {
     e.preventDefault();
     if (!baleName || !balePrice || !baleQty) return;
+
+    if (editingBaleId) {
+      updateBale(editingBaleId, {
+        name: baleName,
+        categoryId: baleCategory,
+        supplierId: baleSupplier,
+        totalPrice: Number(balePrice),
+        quantity: Number(baleQty),
+        description: baleDesc,
+      });
+      handleCancelEditBale();
+      return;
+    }
 
     addBale({
       code: generatedBaleCode,
@@ -97,20 +131,43 @@ export const InventoryManagement: React.FC = () => {
       dateAdded: new Date().toISOString().split('T')[0],
     });
 
-    setBaleName('');
-    setBalePrice('');
-    setBaleQty('');
-    setBaleDesc('');
+    handleCancelEditBale();
   };
 
   // ================= 2. PRODUCT CATEGORIES STATE =================
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [catName, setCatName] = useState('');
   const [catDesc, setCatDesc] = useState('');
   const [catColor, setCatColor] = useState('#ea580c'); // orange-600
 
-  const handleAddCategory = (e: React.FormEvent) => {
+  const handleStartEditCategory = (cat: Category) => {
+    setEditingCategoryId(cat.id);
+    setCatName(cat.name);
+    setCatDesc(cat.description || '');
+    setCatColor(cat.color || '#ea580c');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEditCategory = () => {
+    setEditingCategoryId(null);
+    setCatName('');
+    setCatDesc('');
+    setCatColor('#ea580c');
+  };
+
+  const handleSaveCategory = (e: React.FormEvent) => {
     e.preventDefault();
     if (!catName.trim()) return;
+
+    if (editingCategoryId) {
+      updateCategory(editingCategoryId, {
+        name: catName.trim(),
+        description: catDesc.trim(),
+        color: catColor,
+      });
+      handleCancelEditCategory();
+      return;
+    }
 
     addCategory({
       name: catName.trim(),
@@ -118,8 +175,7 @@ export const InventoryManagement: React.FC = () => {
       color: catColor,
     });
 
-    setCatName('');
-    setCatDesc('');
+    handleCancelEditCategory();
   };
 
   // ================= 3. PRODUCT LIST STATE =================
@@ -220,6 +276,7 @@ export const InventoryManagement: React.FC = () => {
   }, [products, productSearch, categories, bales]);
 
   // ================= 4. BALE SUPPLIERS STATE =================
+  const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const [supName, setSupName] = useState('');
   const [supContactPerson, setSupContactPerson] = useState('');
   const [supEmail, setSupEmail] = useState('');
@@ -227,9 +284,43 @@ export const InventoryManagement: React.FC = () => {
   const [supAddress, setSupAddress] = useState('');
   const [supDesc, setSupDesc] = useState('');
 
+  const handleStartEditSupplier = (sup: Supplier) => {
+    setEditingSupplierId(sup.id);
+    setSupName(sup.name);
+    setSupContactPerson(sup.contactPerson);
+    setSupEmail(sup.email);
+    setSupPhone(sup.phone);
+    setSupAddress(sup.address);
+    setSupDesc(sup.description || '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEditSupplier = () => {
+    setEditingSupplierId(null);
+    setSupName('');
+    setSupContactPerson('');
+    setSupEmail('');
+    setSupPhone('');
+    setSupAddress('');
+    setSupDesc('');
+  };
+
   const handleRegisterSupplier = (e: React.FormEvent) => {
     e.preventDefault();
     if (!supName.trim()) return;
+
+    if (editingSupplierId) {
+      updateSupplier(editingSupplierId, {
+        name: supName.trim(),
+        contactPerson: supContactPerson.trim(),
+        email: supEmail.trim(),
+        phone: supPhone.trim(),
+        address: supAddress.trim(),
+        description: supDesc.trim(),
+      });
+      handleCancelEditSupplier();
+      return;
+    }
 
     addSupplier({
       name: supName.trim(),
@@ -240,12 +331,7 @@ export const InventoryManagement: React.FC = () => {
       description: supDesc.trim(),
     });
 
-    setSupName('');
-    setSupContactPerson('');
-    setSupEmail('');
-    setSupPhone('');
-    setSupAddress('');
-    setSupDesc('');
+    handleCancelEditSupplier();
   };
 
   return (
@@ -298,11 +384,24 @@ export const InventoryManagement: React.FC = () => {
               isDark ? 'bg-stone-900/80 border-orange-500/20' : 'bg-white/90 border-orange-200'
             } backdrop-blur-xl shadow-lg`}
           >
-            <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider mb-2">
-              <Layers className="w-4 h-4" />
-              <span>Record New Imported Bale</span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider">
+                <Layers className="w-4 h-4" />
+                <span>{editingBaleId ? 'Edit Bale Details' : 'Record New Imported Bale'}</span>
+              </div>
+              {editingBaleId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEditBale}
+                  className="text-xs text-stone-400 hover:text-white underline cursor-pointer"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </div>
-            <h2 className="text-lg font-black mb-4">Bale Registration & Automatic Cost Calculation</h2>
+            <h2 className="text-lg font-black mb-4">
+              {editingBaleId ? 'Update Bale Specifications' : 'Bale Registration & Automatic Cost Calculation'}
+            </h2>
 
             <form onSubmit={handleSaveBale} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
               <div>
@@ -419,7 +518,7 @@ export const InventoryManagement: React.FC = () => {
                   className="px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-orange-950/40 transition-all cursor-pointer flex items-center gap-2"
                 >
                   <Save className="w-4 h-4" />
-                  <span>Save Bale to Database</span>
+                  <span>{editingBaleId ? 'Update Bale Database' : 'Save Bale to Database'}</span>
                 </button>
               </div>
             </form>
@@ -459,6 +558,7 @@ export const InventoryManagement: React.FC = () => {
                     <th className="py-3 px-4 font-bold">Total Sales Made</th>
                     <th className="py-3 px-4 font-bold min-w-[200px]">Break-Even Status</th>
                     <th className="py-3 px-4 font-bold">Bale Status</th>
+                    <th className="py-3 px-4 font-bold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-800/50">
@@ -547,6 +647,30 @@ export const InventoryManagement: React.FC = () => {
                             <option value="depleted">Depleted</option>
                           </select>
                         </td>
+
+                        {/* Actions: Edit & Delete */}
+                        <td className="py-4 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleStartEditBale(b)}
+                              className="p-1.5 rounded-lg hover:bg-stone-700/60 text-stone-400 hover:text-white transition-colors cursor-pointer"
+                              title="Edit Bale Details"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete bale "${b.name}" (${b.code}) from database?`)) {
+                                  deleteBale(b.id);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-rose-500/20 text-stone-400 hover:text-rose-400 transition-colors cursor-pointer"
+                              title="Delete Bale"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -566,13 +690,26 @@ export const InventoryManagement: React.FC = () => {
               isDark ? 'bg-stone-900/80 border-orange-500/20' : 'bg-white/90 border-orange-200'
             } backdrop-blur-xl shadow-lg`}
           >
-            <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider mb-2">
-              <Package className="w-4 h-4" />
-              <span>Create Garment Category</span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider">
+                <Package className="w-4 h-4" />
+                <span>{editingCategoryId ? 'Edit Garment Category' : 'Create Garment Category'}</span>
+              </div>
+              {editingCategoryId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEditCategory}
+                  className="text-xs text-stone-400 hover:text-white underline cursor-pointer"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </div>
-            <h2 className="text-lg font-black mb-4">Product Category Definition</h2>
+            <h2 className="text-lg font-black mb-4">
+              {editingCategoryId ? 'Update Category Definition' : 'Product Category Definition'}
+            </h2>
 
-            <form onSubmit={handleAddCategory} className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+            <form onSubmit={handleSaveCategory} className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
               <div>
                 <label className="block text-stone-300 font-semibold mb-1">Category Name</label>
                 <input
@@ -626,13 +763,13 @@ export const InventoryManagement: React.FC = () => {
                   className="px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-orange-950/40 transition-all cursor-pointer flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add Category</span>
+                  <span>{editingCategoryId ? 'Update Category' : 'Add Category'}</span>
                 </button>
               </div>
             </form>
           </div>
 
-          {/* Category Cards with circle color and stock count */}
+          {/* Category Cards with circle color, stock count, Edit & Delete */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {categories.map((cat) => (
               <div
@@ -644,13 +781,37 @@ export const InventoryManagement: React.FC = () => {
                 } backdrop-blur-xl flex flex-col justify-between`}
               >
                 <div>
-                  <div className="flex items-center gap-3 mb-3">
-                    {/* Circle showing the color */}
-                    <div
-                      className="w-5 h-5 rounded-full shrink-0 shadow-md"
-                      style={{ backgroundColor: cat.color }}
-                    />
-                    <h3 className="font-black text-base">{cat.name}</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      {/* Circle showing the color */}
+                      <div
+                        className="w-5 h-5 rounded-full shrink-0 shadow-md"
+                        style={{ backgroundColor: cat.color }}
+                      />
+                      <h3 className="font-black text-base">{cat.name}</h3>
+                    </div>
+
+                    {/* Edit & Delete Action Buttons */}
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleStartEditCategory(cat)}
+                        className="p-1.5 rounded-lg hover:bg-stone-700/60 text-stone-400 hover:text-white transition-colors cursor-pointer"
+                        title="Edit Category"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete category "${cat.name}" from database?`)) {
+                            deleteCategory(cat.id);
+                          }
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-rose-500/20 text-stone-400 hover:text-rose-400 transition-colors cursor-pointer"
+                        title="Delete Category"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-stone-400 leading-relaxed">{cat.description}</p>
                 </div>
@@ -992,7 +1153,7 @@ export const InventoryManagement: React.FC = () => {
       )}
 
       {/* ================= SECTION 4: BALE SUPPLIERS ================= */}
-      {currentTab === 'suppliers' && currentUser.role === 'owner' && (
+      {currentTab === 'suppliers' && (currentUser.role === 'owner' || currentUser.role === 'staff') && (
         <div className="space-y-8">
           {/* Register Supplier Form */}
           <div
@@ -1000,11 +1161,24 @@ export const InventoryManagement: React.FC = () => {
               isDark ? 'bg-stone-900/80 border-orange-500/20' : 'bg-white/90 border-orange-200'
             } backdrop-blur-xl shadow-lg`}
           >
-            <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider mb-2">
-              <Truck className="w-4 h-4" />
-              <span>Register Sourcing Partner</span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider">
+                <Truck className="w-4 h-4" />
+                <span>{editingSupplierId ? 'Edit Sourcing Partner' : 'Register Sourcing Partner'}</span>
+              </div>
+              {editingSupplierId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEditSupplier}
+                  className="text-xs text-stone-400 hover:text-white underline cursor-pointer"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </div>
-            <h2 className="text-lg font-black mb-4">Bale Supplier & Wholesaler Registration</h2>
+            <h2 className="text-lg font-black mb-4">
+              {editingSupplierId ? 'Update Supplier Profile' : 'Bale Supplier & Wholesaler Registration'}
+            </h2>
 
             <form onSubmit={handleRegisterSupplier} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
               <div>
@@ -1096,7 +1270,7 @@ export const InventoryManagement: React.FC = () => {
                   className="px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-orange-950/40 transition-all cursor-pointer flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Register Supplier</span>
+                  <span>{editingSupplierId ? 'Update Supplier' : 'Register Supplier'}</span>
                 </button>
               </div>
             </form>
@@ -1118,9 +1292,26 @@ export const InventoryManagement: React.FC = () => {
                     <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">
                       Verified Sourcing Partner
                     </span>
-                    <span className="p-1.5 rounded-lg bg-orange-500/10 text-orange-400">
-                      <Truck className="w-4 h-4" />
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleStartEditSupplier(s)}
+                        className="p-1.5 rounded-lg hover:bg-stone-700/60 text-stone-400 hover:text-white transition-colors cursor-pointer"
+                        title="Edit Supplier"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete supplier "${s.name}" from database?`)) {
+                            deleteSupplier(s.id);
+                          }
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-rose-500/20 text-stone-400 hover:text-rose-400 transition-colors cursor-pointer"
+                        title="Delete Supplier"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <h3 className="font-black text-lg text-white">{s.name}</h3>
                   <p className="text-xs text-stone-300 font-semibold mt-1">

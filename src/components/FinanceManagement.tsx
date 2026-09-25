@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../context/StoreContext';
-import { PaymentMethod } from '../types';
+import { PaymentMethod, ExpenseAccount, Expense, Transaction } from '../types';
 import {
   DollarSign,
   Receipt,
@@ -17,7 +17,12 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Filter,
+  Edit2,
+  Trash2,
+  X,
+  Save,
 } from 'lucide-react';
+import { SalesExpensesLineGraph } from './SalesExpensesLineGraph';
 
 export const FinanceManagement: React.FC = () => {
   const {
@@ -26,19 +31,52 @@ export const FinanceManagement: React.FC = () => {
     setFinanceTab,
     expenseAccounts,
     addExpenseAccount,
+    updateExpenseAccount,
+    deleteExpenseAccount,
     expenses,
     addExpense,
+    updateExpense,
+    deleteExpense,
     transactions,
+    addTransaction,
+    updateTransaction,
+    deleteTransaction,
   } = useStore();
 
   // ================= 1. EXPENSE ACCOUNTS STATE =================
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [accName, setAccName] = useState('');
   const [accBudget, setAccBudget] = useState<number | ''>('');
   const [accDesc, setAccDesc] = useState('');
 
+  const handleStartEditAccount = (acc: ExpenseAccount) => {
+    setEditingAccountId(acc.id);
+    setAccName(acc.name);
+    setAccBudget(acc.monthlyBudget);
+    setAccDesc(acc.description || '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEditAccount = () => {
+    setEditingAccountId(null);
+    setAccName('');
+    setAccBudget('');
+    setAccDesc('');
+  };
+
   const handleSaveAccount = (e: React.FormEvent) => {
     e.preventDefault();
     if (!accName.trim() || !accBudget) return;
+
+    if (editingAccountId) {
+      updateExpenseAccount(editingAccountId, {
+        name: accName.trim(),
+        monthlyBudget: Number(accBudget),
+        description: accDesc.trim(),
+      });
+      handleCancelEditAccount();
+      return;
+    }
 
     addExpenseAccount({
       name: accName.trim(),
@@ -46,12 +84,11 @@ export const FinanceManagement: React.FC = () => {
       description: accDesc.trim(),
     });
 
-    setAccName('');
-    setAccBudget('');
-    setAccDesc('');
+    handleCancelEditAccount();
   };
 
   // ================= 2. RECORD EXPENSE STATE =================
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState(expenseAccounts[0]?.id || '');
   const [disbursementAmount, setDisbursementAmount] = useState<number | ''>('');
   const [disbursementDate, setDisbursementDate] = useState(new Date().toISOString().split('T')[0]);
@@ -60,6 +97,28 @@ export const FinanceManagement: React.FC = () => {
   const [receiptFileName, setReceiptFileName] = useState('');
   const [expenseDesc, setExpenseDesc] = useState('');
   const [expenseSuccessMsg, setExpenseSuccessMsg] = useState(false);
+
+  const handleStartEditExpense = (exp: Expense) => {
+    setEditingExpenseId(exp.id);
+    setSelectedAccountId(exp.accountId);
+    setDisbursementAmount(exp.amount);
+    setDisbursementDate(exp.date);
+    setPaymentMethod(exp.paymentMethod);
+    setExpenseDesc(exp.description || '');
+    if (exp.receiptImage) {
+      setReceiptFile(exp.receiptImage);
+      setReceiptFileName('Receipt image attached');
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEditExpense = () => {
+    setEditingExpenseId(null);
+    setDisbursementAmount('');
+    setExpenseDesc('');
+    setReceiptFile('');
+    setReceiptFileName('');
+  };
 
   const handleReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -79,6 +138,21 @@ export const FinanceManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedAccountId || !disbursementAmount || !disbursementDate) return;
 
+    if (editingExpenseId) {
+      updateExpense(editingExpenseId, {
+        accountId: selectedAccountId,
+        amount: Number(disbursementAmount),
+        date: disbursementDate,
+        paymentMethod,
+        receiptImage: receiptFile || undefined,
+        description: expenseDesc.trim(),
+      });
+      handleCancelEditExpense();
+      setExpenseSuccessMsg(true);
+      setTimeout(() => setExpenseSuccessMsg(false), 3000);
+      return;
+    }
+
     addExpense({
       accountId: selectedAccountId,
       amount: Number(disbursementAmount),
@@ -88,15 +162,13 @@ export const FinanceManagement: React.FC = () => {
       description: expenseDesc.trim(),
     });
 
-    setDisbursementAmount('');
-    setExpenseDesc('');
-    setReceiptFile('');
-    setReceiptFileName('');
+    handleCancelEditExpense();
     setExpenseSuccessMsg(true);
     setTimeout(() => setExpenseSuccessMsg(false), 3000);
   };
 
-  // ================= 3. TRANSACTION HISTORY STATE =================
+  // ================= 3. TRANSACTION HISTORY & EDIT STATE =================
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [txSearch, setTxSearch] = useState('');
   const [flowFilter, setFlowFilter] = useState<'all' | 'inflow' | 'outflow'>('all');
   const [methodFilter, setMethodFilter] = useState<string>('all');
@@ -158,6 +230,56 @@ export const FinanceManagement: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  const monthlyComparisonData = useMemo(() => {
+    const months = [
+      { key: '2026-05', label: 'May 2026', short: 'May' },
+      { key: '2026-06', label: 'Jun 2026', short: 'Jun' },
+      { key: '2026-07', label: 'Jul 2026', short: 'Jul' },
+      { key: '2026-08', label: 'Aug 2026', short: 'Aug' },
+      { key: '2026-09', label: 'Sep 2026', short: 'Sep' },
+    ];
+
+    const monthMap: Record<string, { sales: number; expense: number }> = {
+      '2026-05': { sales: 68400, expense: 31200 },
+      '2026-06': { sales: 79200, expense: 36400 },
+      '2026-07': { sales: 88500, expense: 41800 },
+      '2026-08': { sales: 94800, expense: 43500 },
+      '2026-09': { sales: 0, expense: 0 },
+    };
+
+    transactions.forEach((t) => {
+      const monthKey = t.date.slice(0, 7);
+      if (!monthMap[monthKey]) {
+        monthMap[monthKey] = { sales: 0, expense: 0 };
+        const d = new Date(t.date);
+        months.push({
+          key: monthKey,
+          label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          short: d.toLocaleDateString('en-US', { month: 'short' }),
+        });
+      }
+      if (t.type === 'inflow') {
+        monthMap[monthKey].sales += t.inflow;
+      } else {
+        monthMap[monthKey].expense += t.outflow;
+      }
+    });
+
+    return months.map((m) => {
+      const sales = monthMap[m.key]?.sales || 0;
+      const expense = monthMap[m.key]?.expense || 0;
+      const net = sales - expense;
+      return {
+        key: m.key,
+        label: m.label,
+        short: m.short,
+        sales,
+        expense,
+        net,
+      };
+    });
+  }, [transactions]);
+
   return (
     <div className="space-y-8 animate-fadeIn">
       {/* Finance Navigation Header */}
@@ -212,11 +334,24 @@ export const FinanceManagement: React.FC = () => {
               isDark ? 'bg-stone-900/80 border-orange-500/20' : 'bg-white/90 border-orange-200'
             } backdrop-blur-xl shadow-lg`}
           >
-            <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider mb-2">
-              <DollarSign className="w-4 h-4" />
-              <span>Define Operating Budget</span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider">
+                <DollarSign className="w-4 h-4" />
+                <span>{editingAccountId ? 'Edit Operating Budget' : 'Define Operating Budget'}</span>
+              </div>
+              {editingAccountId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEditAccount}
+                  className="text-xs text-stone-400 hover:text-white underline cursor-pointer"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </div>
-            <h2 className="text-lg font-black mb-4">Create Expense Account & Budget Limit</h2>
+            <h2 className="text-lg font-black mb-4">
+              {editingAccountId ? 'Update Expense Account & Budget Limit' : 'Create Expense Account & Budget Limit'}
+            </h2>
 
             <form onSubmit={handleSaveAccount} className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
               <div>
@@ -269,7 +404,7 @@ export const FinanceManagement: React.FC = () => {
                   className="px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-orange-950/40 transition-all cursor-pointer flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Save Expense Account</span>
+                  <span>{editingAccountId ? 'Update Expense Account' : 'Save Expense Account'}</span>
                 </button>
               </div>
             </form>
@@ -300,17 +435,39 @@ export const FinanceManagement: React.FC = () => {
                       <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400">
                         Monthly Operating Account
                       </span>
-                      {isExceeded ? (
-                        <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                          <AlertTriangle className="w-3 h-3" />
-                          <span>Budget Exceeded</span>
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>Within Budget</span>
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {isExceeded ? (
+                          <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>Over Budget</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Within Budget</span>
+                          </span>
+                        )}
+
+                        {/* Edit & Delete Action Buttons */}
+                        <button
+                          onClick={() => handleStartEditAccount(acc)}
+                          className="p-1 rounded-lg hover:bg-stone-700/60 text-stone-400 hover:text-white transition-colors cursor-pointer"
+                          title="Edit Expense Account"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete expense account "${acc.name}" from database?`)) {
+                              deleteExpenseAccount(acc.id);
+                            }
+                          }}
+                          className="p-1 rounded-lg hover:bg-rose-500/20 text-stone-400 hover:text-rose-400 transition-colors cursor-pointer"
+                          title="Delete Expense Account"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                     <h3 className="font-black text-lg text-white">{acc.name}</h3>
                     <p className="text-xs text-stone-400 mt-1">{acc.description}</p>
@@ -364,16 +521,29 @@ export const FinanceManagement: React.FC = () => {
               isDark ? 'bg-stone-900/80 border-orange-500/20' : 'bg-white/90 border-orange-200'
             } backdrop-blur-xl shadow-lg max-w-2xl mx-auto`}
           >
-            <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider mb-2">
-              <Receipt className="w-4 h-4" />
-              <span>Disbursement Entry</span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider">
+                <Receipt className="w-4 h-4" />
+                <span>{editingExpenseId ? 'Edit Disbursement Entry' : 'Disbursement Entry'}</span>
+              </div>
+              {editingExpenseId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEditExpense}
+                  className="text-xs text-stone-400 hover:text-white underline cursor-pointer"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </div>
-            <h2 className="text-xl font-black mb-4">Record Store Expense Outflow</h2>
+            <h2 className="text-xl font-black mb-4">
+              {editingExpenseId ? 'Update Store Expense Outflow' : 'Record Store Expense Outflow'}
+            </h2>
 
             {expenseSuccessMsg && (
               <div className="mb-4 p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Expense disbursement successfully recorded and logged to transactions!</span>
+                <span>Expense disbursement successfully recorded and logged to database!</span>
               </div>
             )}
 
@@ -478,11 +648,102 @@ export const FinanceManagement: React.FC = () => {
 
               <button
                 type="submit"
-                className="w-full py-3.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black rounded-xl text-xs shadow-lg shadow-orange-950/40 transition-all cursor-pointer"
+                className="w-full py-3.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black rounded-xl text-xs shadow-lg shadow-orange-950/40 transition-all cursor-pointer flex items-center justify-center gap-2"
               >
-                Save Expense Record
+                <Save className="w-4 h-4" />
+                <span>{editingExpenseId ? 'Update Expense Record' : 'Save Expense Record'}</span>
               </button>
             </form>
+          </div>
+
+          {/* Recorded Expenses Table with Edit and Delete */}
+          <div
+            className={`p-6 rounded-3xl border ${
+              isDark ? 'bg-stone-900/80 border-orange-500/20' : 'bg-white/90 border-orange-200'
+            } backdrop-blur-xl shadow-lg`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-lg font-black">Recorded Expenses Database</h3>
+                <p className="text-xs text-stone-400">
+                  Individual operating expense entries with edit and delete controls.
+                </p>
+              </div>
+              <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-orange-500/10 text-orange-400 border border-orange-500/20 self-start">
+                Total Expenses: {expenses.length} records
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr
+                    className={`border-b ${
+                      isDark ? 'border-stone-800 text-stone-400' : 'border-stone-200 text-stone-500'
+                    } uppercase text-[10px] tracking-wider`}
+                  >
+                    <th className="py-3 px-3 font-bold">Date</th>
+                    <th className="py-3 px-3 font-bold">Account</th>
+                    <th className="py-3 px-3 font-bold">Description</th>
+                    <th className="py-3 px-3 font-bold">Payment Method</th>
+                    <th className="py-3 px-3 font-bold text-right">Amount (₱)</th>
+                    <th className="py-3 px-3 font-bold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-800/50">
+                  {expenses.map((exp) => {
+                    const acc = expenseAccounts.find((a) => a.id === exp.accountId);
+                    return (
+                      <tr
+                        key={exp.id}
+                        className={`hover:bg-orange-500/5 transition-colors ${
+                          isDark ? 'text-stone-200' : 'text-stone-800'
+                        }`}
+                      >
+                        <td className="py-3 px-3 font-mono text-[11px] text-stone-400">{exp.date}</td>
+                        <td className="py-3 px-3 font-bold text-stone-100">{acc?.name || 'General Expense'}</td>
+                        <td className="py-3 px-3 text-stone-300 max-w-xs truncate">{exp.description || 'Disbursement'}</td>
+                        <td className="py-3 px-3 capitalize font-mono text-[11px] text-stone-400">
+                          {exp.paymentMethod.replace('_', ' ')}
+                        </td>
+                        <td className="py-3 px-3 text-right font-black text-rose-400">
+                          -₱{exp.amount.toLocaleString()}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleStartEditExpense(exp)}
+                              className="p-1.5 rounded-lg hover:bg-stone-700/60 text-stone-400 hover:text-white transition-colors cursor-pointer"
+                              title="Edit Expense"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete expense record of ₱${exp.amount.toLocaleString()}?`)) {
+                                  deleteExpense(exp.id);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-rose-500/20 text-stone-400 hover:text-rose-400 transition-colors cursor-pointer"
+                              title="Delete Expense"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {expenses.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-stone-400 italic">
+                        No expense disbursements recorded yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -490,6 +751,23 @@ export const FinanceManagement: React.FC = () => {
       {/* ================= SECTION 3: TRANSACTION HISTORY ================= */}
       {financeTab === 'history' && (
         <div className="space-y-6">
+          {/* Sales and Expenses Comparison Line Graph Card */}
+          <div
+            className={`p-6 rounded-3xl border transition-all ${
+              isDark
+                ? 'bg-stone-900/80 border-orange-500/20 text-stone-100 shadow-xl'
+                : 'bg-white/90 border-orange-200 text-stone-900 shadow-lg'
+            } backdrop-blur-xl`}
+          >
+            <div className="mb-4">
+              <h2 className="text-lg font-black tracking-tight">Sales & Expenses Comparison Line Graph</h2>
+              <p className="text-xs text-stone-400 mt-0.5">
+                Multi-series revenue inflows (emerald green) vs operating outflows (rose red) over monthly reporting periods.
+              </p>
+            </div>
+            <SalesExpensesLineGraph data={monthlyComparisonData} isDark={isDark} />
+          </div>
+
           {/* Filter Bar: Custom date range, search button, export to excel, flow filter, payment method filter */}
           <div
             className={`p-6 rounded-3xl border ${
@@ -638,6 +916,7 @@ export const FinanceManagement: React.FC = () => {
                     <th className="py-3 px-3 font-bold">Payment Method</th>
                     <th className="py-3 px-3 font-bold text-right">Inflow (₱)</th>
                     <th className="py-3 px-3 font-bold text-right">Outflow (₱)</th>
+                    <th className="py-3 px-3 font-bold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-800/50">
@@ -676,11 +955,33 @@ export const FinanceManagement: React.FC = () => {
                       <td className="py-3.5 px-3 text-right font-black text-rose-400">
                         {tx.outflow > 0 ? `-₱${tx.outflow.toLocaleString()}` : '-'}
                       </td>
+                      <td className="py-3.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setEditingTransaction({ ...tx })}
+                            className="p-1.5 rounded-lg hover:bg-stone-700/60 text-stone-400 hover:text-white transition-colors cursor-pointer"
+                            title="Edit Transaction"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Delete transaction "${tx.description}"?`)) {
+                                deleteTransaction(tx.id);
+                              }
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-rose-500/20 text-stone-400 hover:text-rose-400 transition-colors cursor-pointer"
+                            title="Delete Transaction"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {filteredTransactions.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-stone-400 italic">
+                      <td colSpan={8} className="py-8 text-center text-stone-400 italic">
                         No transactions found for the specified filters.
                       </td>
                     </tr>
@@ -688,6 +989,143 @@ export const FinanceManagement: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Transaction Modal */}
+      {editingTransaction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div
+            className={`w-full max-w-lg p-6 rounded-3xl border shadow-2xl ${
+              isDark ? 'bg-stone-900 border-orange-500/30 text-stone-100' : 'bg-white border-orange-200 text-stone-900'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-orange-500/20">
+              <h3 className="text-base font-black flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-orange-500" />
+                <span>Edit Transaction Record</span>
+              </h3>
+              <button
+                onClick={() => setEditingTransaction(null)}
+                className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                updateTransaction(editingTransaction.id, {
+                  date: editingTransaction.date,
+                  category: editingTransaction.category,
+                  description: editingTransaction.description,
+                  paymentMethod: editingTransaction.paymentMethod,
+                  inflow: Number(editingTransaction.inflow) || 0,
+                  outflow: Number(editingTransaction.outflow) || 0,
+                });
+                setEditingTransaction(null);
+              }}
+              className="space-y-3.5 text-xs"
+            >
+              <div>
+                <label className="block text-stone-400 font-semibold mb-1">Transaction Date</label>
+                <input
+                  type="date"
+                  required
+                  value={editingTransaction.date}
+                  onChange={(e) => setEditingTransaction({ ...editingTransaction, date: e.target.value })}
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                    isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-300'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-stone-400 font-semibold mb-1">Account / Category</label>
+                <input
+                  type="text"
+                  required
+                  value={editingTransaction.category}
+                  onChange={(e) => setEditingTransaction({ ...editingTransaction, category: e.target.value })}
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                    isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-300'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-stone-400 font-semibold mb-1">Description / Memo</label>
+                <input
+                  type="text"
+                  required
+                  value={editingTransaction.description}
+                  onChange={(e) => setEditingTransaction({ ...editingTransaction, description: e.target.value })}
+                  className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                    isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-300'
+                  }`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-stone-400 font-semibold mb-1">Payment Method</label>
+                  <select
+                    value={editingTransaction.paymentMethod}
+                    onChange={(e) =>
+                      setEditingTransaction({ ...editingTransaction, paymentMethod: e.target.value as PaymentMethod })
+                    }
+                    className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-orange-500 capitalize ${
+                      isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-300'
+                    }`}
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="gcash">GCash</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="card">Card</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-stone-400 font-semibold mb-1">
+                    {editingTransaction.type === 'inflow' ? 'Inflow Amount (₱)' : 'Outflow Amount (₱)'}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editingTransaction.type === 'inflow' ? editingTransaction.inflow : editingTransaction.outflow}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 0;
+                      if (editingTransaction.type === 'inflow') {
+                        setEditingTransaction({ ...editingTransaction, inflow: val });
+                      } else {
+                        setEditingTransaction({ ...editingTransaction, outflow: val });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                      isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-300'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-stone-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingTransaction(null)}
+                  className="px-4 py-2 rounded-xl border border-stone-700 text-stone-400 hover:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold cursor-pointer shadow-lg"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

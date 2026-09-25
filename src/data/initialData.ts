@@ -617,26 +617,27 @@ export const initialTransactionStats: TransactionStats = {
 export const initialUsers: User[] = [
   {
     id: 'user-owner',
-    name: 'Frank Edward (Store Owner)',
-    email: 'owner@exins.ph',
+    name: 'Frank Edward (Owner)',
+    email: 'villotafrankedward@gmail.com',
     role: 'owner',
     phone: '+63 917 123 4567',
     address: 'Novaliches, Quezon City',
   },
   {
     id: 'user-staff',
-    name: 'John Staff Assistant',
-    email: 'staff@exins.ph',
+    name: 'Frank Villota (Staff)',
+    email: 'frankvillota905@gmail.com',
     role: 'staff',
     phone: '+63 920 333 4455',
     address: 'Quirino Highway, Novaliches, QC',
   },
   {
-    id: 'user-customer',
-    name: 'Frank Edward Villota',
-    email: 'villotafrankedward@gmail.com',
+    id: 'user-guest',
+    name: 'Shopper Guest',
+    email: 'guest@exins.ph',
     role: 'customer',
-    phone: '+63 917 123 4567',
-    address: 'Block 14 Lot 8, Jordan Plains Subdivision, Novaliches, Quezon City',
+    phone: '',
+    address: '',
   },
 ];
+

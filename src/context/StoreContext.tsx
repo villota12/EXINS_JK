@@ -46,6 +46,11 @@ import {
   syncUserProfile,
 } from '../firebase/dbService';
 
+export const ADMIN_EMAIL = 'villotafrankedward@gmail.com';
+export const ADMIN_PASS = '12345678';
+export const STAFF_EMAIL = 'frankvillota905@gmail.com';
+export const STAFF_PASS = '12345678';
+
 interface StoreContextType {
   // User & Auth
   currentUser: User;
@@ -57,12 +62,11 @@ interface StoreContextType {
   firebaseUser: FirebaseUser | null;
   authError: string | null;
   clearAuthError: () => void;
-  signInWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  signInWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string; targetRole?: UserRole }>;
   signUpWithEmail: (
     email: string,
     pass: string,
     name: string,
-    role: UserRole,
     phone?: string,
     address?: string
   ) => Promise<{ success: boolean; error?: string }>;
@@ -83,13 +87,19 @@ interface StoreContextType {
   // Data Collections
   categories: Category[];
   addCategory: (category: Omit<Category, 'id' | 'inStock'>) => void;
+  updateCategory: (id: string, category: Partial<Category>) => void;
+  deleteCategory: (id: string) => void;
 
   suppliers: Supplier[];
   addSupplier: (supplier: Omit<Supplier, 'id' | 'totalBalesSourced'>) => void;
+  updateSupplier: (id: string, supplier: Partial<Supplier>) => void;
+  deleteSupplier: (id: string) => void;
 
   bales: Bale[];
   addBale: (bale: Omit<Bale, 'id' | 'pricePerPiece' | 'totalSales'>) => void;
+  updateBale: (id: string, bale: Partial<Bale>) => void;
   updateBaleStatus: (id: string, status: 'sealed' | 'opened' | 'depleted') => void;
+  deleteBale: (id: string) => void;
 
   products: Product[];
   addProduct: (product: Omit<Product, 'id' | 'barcode' | 'dateAdded'>) => void;
@@ -112,10 +122,16 @@ interface StoreContextType {
   // Finance
   expenseAccounts: ExpenseAccount[];
   addExpenseAccount: (account: Omit<ExpenseAccount, 'id' | 'totalSpent'>) => void;
+  updateExpenseAccount: (id: string, account: Partial<ExpenseAccount>) => void;
+  deleteExpenseAccount: (id: string) => void;
   expenses: Expense[];
   addExpense: (expense: Omit<Expense, 'id'>) => void;
+  updateExpense: (id: string, expense: Partial<Expense>) => void;
+  deleteExpense: (id: string) => void;
   transactions: Transaction[];
   addTransaction: (tx: Omit<Transaction, 'id'>) => void;
+  updateTransaction: (id: string, tx: Partial<Transaction>) => void;
+  deleteTransaction: (id: string) => void;
 
   // Inventory transaction stats
   transactionStats: TransactionStats;
@@ -158,15 +174,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   // Auth & Roles
-  const [currentUser, setCurrentUser] = useState<User>(() => initialUsers[0]);
+  const [currentUser, setCurrentUser] = useState<User>(() => {
+    const savedEmail = localStorage.getItem('exins_current_user_email');
+    if (savedEmail) {
+      const normalized = savedEmail.toLowerCase();
+      if (normalized === ADMIN_EMAIL.toLowerCase()) return initialUsers[0];
+      if (normalized === STAFF_EMAIL.toLowerCase()) return initialUsers[1];
+    }
+    return initialUsers[2]; // Default to guest shopper
+  });
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const clearAuthError = () => setAuthError(null);
 
-  // Navigation tabs
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  // Navigation tabs - customer lands on showcase shop, admin on dashboard, staff on POS
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const savedEmail = localStorage.getItem('exins_current_user_email');
+    if (savedEmail?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) return 'dashboard';
+    if (savedEmail?.toLowerCase() === STAFF_EMAIL.toLowerCase()) return 'pos';
+    return 'shop';
+  });
   const [shopView, setShopView] = useState<'browse' | 'orders'>('browse');
   const [inventoryTab, setInventoryTab] = useState<'bales' | 'categories' | 'products' | 'suppliers'>('bales');
   const [financeTab, setFinanceTab] = useState<'accounts' | 'record' | 'history'>('accounts');
@@ -253,15 +282,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!isMounted) return;
       setFirebaseUser(user);
-      if (user) {
+      if (user && user.email) {
         setIsFirebaseConnected(true);
-        // If user is signed in with email/uid, ensure role is preserved
-        const savedRole = (localStorage.getItem(`exins_user_role_${user.uid}`) as UserRole) || 'customer';
+        const normalized = user.email.toLowerCase();
+        const detectedRole: UserRole =
+          normalized === ADMIN_EMAIL.toLowerCase()
+            ? 'owner'
+            : normalized === STAFF_EMAIL.toLowerCase()
+            ? 'staff'
+            : 'customer';
+        const displayName =
+          detectedRole === 'owner'
+            ? 'Frank Edward (Owner)'
+            : detectedRole === 'staff'
+            ? 'Frank Villota (Staff)'
+            : user.displayName || normalized.split('@')[0];
         setCurrentUser((prev) => ({
           id: user.uid,
-          name: user.displayName || user.email?.split('@')[0] || prev.name,
+          name: displayName || prev.name,
           email: user.email || prev.email,
-          role: prev.role || savedRole,
+          role: detectedRole,
           phone: prev.phone,
           address: prev.address,
         }));
@@ -338,24 +378,86 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [categories, suppliers, bales, products, orders, expenseAccounts, expenses, transactions, transactionStats, cart]);
 
   // Firebase Authentication Handlers
-  const signInWithEmail = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
+  const signInWithEmail = async (
+    email: string,
+    pass: string
+  ): Promise<{ success: boolean; error?: string; targetRole?: UserRole }> => {
     try {
       setAuthError(null);
-      const userCred = await signInWithEmailAndPassword(auth, email, pass);
-      const user = userCred.user;
-      const detectedRole: UserRole = email.includes('owner') ? 'owner' : email.includes('staff') ? 'staff' : 'customer';
+      const normalizedEmail = email.trim().toLowerCase();
+      const isAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
+      const isStaff = normalizedEmail === STAFF_EMAIL.toLowerCase();
+
+      // Check fixed passwords for management accounts
+      if (isAdmin && pass !== ADMIN_PASS) {
+        const msg = 'Incorrect password for Administrator account.';
+        setAuthError(msg);
+        return { success: false, error: msg };
+      }
+      if (isStaff && pass !== STAFF_PASS) {
+        const msg = 'Incorrect password for Staff account.';
+        setAuthError(msg);
+        return { success: false, error: msg };
+      }
+
+      const detectedRole: UserRole = isAdmin ? 'owner' : isStaff ? 'staff' : 'customer';
+      let userDisplayName = isAdmin
+        ? 'Frank Edward (Owner)'
+        : isStaff
+        ? 'Frank Villota (Staff)'
+        : normalizedEmail.split('@')[0];
+      let userId = isAdmin ? 'user-owner' : isStaff ? 'user-staff' : `user-${Date.now()}`;
+
+      // Firebase Authentication flow
+      try {
+        const userCred = await signInWithEmailAndPassword(auth, normalizedEmail, pass);
+        const user = userCred.user;
+        userId = user.uid;
+        if (user.displayName) userDisplayName = user.displayName;
+      } catch (fbErr: any) {
+        console.warn('Firebase signIn notice:', fbErr?.code || fbErr?.message);
+        // If admin or staff and account not found yet in Firebase, auto-create it
+        if (
+          (isAdmin || isStaff) &&
+          (fbErr?.code === 'auth/user-not-found' || fbErr?.code === 'auth/invalid-credential')
+        ) {
+          try {
+            const newCred = await createUserWithEmailAndPassword(auth, normalizedEmail, pass);
+            userId = newCred.user.uid;
+          } catch (createErr) {
+            console.warn('Auto-create Firebase user note:', createErr);
+          }
+        } else if (!isAdmin && !isStaff) {
+          const msg = fbErr.code ? fbErr.code.replace('auth/', '').replace(/-/g, ' ') : fbErr.message;
+          setAuthError(msg);
+          return { success: false, error: msg };
+        }
+      }
+
       const appUser: User = {
-        id: user.uid,
-        name: user.displayName || email.split('@')[0],
-        email: user.email || email,
+        id: userId,
+        name: userDisplayName,
+        email: normalizedEmail,
         role: detectedRole,
       };
+
       setCurrentUser(appUser);
-      localStorage.setItem(`exins_user_role_${user.uid}`, detectedRole);
+      localStorage.setItem(`exins_user_role_${userId}`, detectedRole);
+      localStorage.setItem('exins_current_user_email', normalizedEmail);
       syncUserProfile(appUser);
-      return { success: true };
+
+      // Route to destination view
+      if (detectedRole === 'owner') {
+        setActiveTab('dashboard');
+      } else if (detectedRole === 'staff') {
+        setActiveTab('pos');
+      } else {
+        setActiveTab('shop');
+      }
+
+      return { success: true, targetRole: detectedRole };
     } catch (err: any) {
-      console.warn('Firebase signIn error:', err);
+      console.warn('Sign In general error:', err);
       const msg = err.code ? err.code.replace('auth/', '').replace(/-/g, ' ') : err.message;
       setAuthError(msg);
       return { success: false, error: msg };
@@ -366,25 +468,38 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     email: string,
     pass: string,
     name: string,
-    role: UserRole,
     phone?: string,
     address?: string
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       setAuthError(null);
-      const userCred = await createUserWithEmailAndPassword(auth, email, pass);
+      const normalizedEmail = email.trim().toLowerCase();
+
+      // Ensure public users cannot register as admin or staff
+      if (normalizedEmail === ADMIN_EMAIL.toLowerCase() || normalizedEmail === STAFF_EMAIL.toLowerCase()) {
+        const errorMsg = 'This management account is reserved. Please sign in with your credentials.';
+        setAuthError(errorMsg);
+        return { success: false, error: errorMsg };
+      }
+
+      // Customers only
+      const userCred = await createUserWithEmailAndPassword(auth, normalizedEmail, pass);
       const user = userCred.user;
       const appUser: User = {
         id: user.uid,
-        name: name || email.split('@')[0],
-        email: user.email || email,
-        role,
+        name: name || normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        role: 'customer',
         phone,
         address,
       };
+
       setCurrentUser(appUser);
-      localStorage.setItem(`exins_user_role_${user.uid}`, role);
+      localStorage.setItem(`exins_user_role_${user.uid}`, 'customer');
+      localStorage.setItem('exins_current_user_email', normalizedEmail);
       await syncUserProfile(appUser);
+      setActiveTab('shop');
+
       return { success: true };
     } catch (err: any) {
       console.warn('Firebase signUp error:', err);
@@ -397,27 +512,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const signOutCurrentUser = async () => {
     try {
       await signOut(auth);
-      setFirebaseUser(null);
-      // Switch back to customer guest
-      switchRole('customer');
     } catch (err) {
       console.warn('Sign out note:', err);
     }
+    setFirebaseUser(null);
+    localStorage.removeItem('exins_current_user_email');
+    const guestUser: User = initialUsers[2];
+    setCurrentUser(guestUser);
+    setActiveTab('shop');
   };
 
   const switchRole = (role: UserRole) => {
-    const matched = initialUsers.find((u) => u.role === role) || {
-      id: `user-${role}`,
-      name: role === 'owner' ? 'Frank Edward (Owner)' : role === 'staff' ? 'Store Assistant' : 'Shopper Customer',
-      email: `${role}@exins.ph`,
-      role,
-    };
+    const matched = initialUsers.find((u) => u.role === role) || initialUsers[2];
     setCurrentUser(matched);
     syncUserProfile(matched);
-
-    // If customer, switch view directly to showcase shop
     if (role === 'customer') {
       setActiveTab('shop');
+    } else if (role === 'staff') {
+      setActiveTab('pos');
+    } else {
+      setActiveTab('dashboard');
     }
   };
 
@@ -431,6 +545,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     saveDocument(COLLECTIONS.CATEGORIES, newCategory);
   };
 
+  const updateCategory = (id: string, updated: Partial<Category>) => {
+    setCategories((prev) => {
+      const next = prev.map((c) => (c.id === id ? { ...c, ...updated } : c));
+      const target = next.find((c) => c.id === id);
+      if (target) saveDocument(COLLECTIONS.CATEGORIES, target);
+      return next;
+    });
+  };
+
+  const deleteCategory = (id: string) => {
+    setCategories((prev) => prev.filter((c) => c.id !== id));
+    removeDocument(COLLECTIONS.CATEGORIES, id);
+  };
+
   // Suppliers
   const addSupplier = (supplierData: Omit<Supplier, 'id' | 'totalBalesSourced'>) => {
     const newSupplier: Supplier = {
@@ -440,6 +568,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     setSuppliers((prev) => [...prev, newSupplier]);
     saveDocument(COLLECTIONS.SUPPLIERS, newSupplier);
+  };
+
+  const updateSupplier = (id: string, updated: Partial<Supplier>) => {
+    setSuppliers((prev) => {
+      const next = prev.map((s) => (s.id === id ? { ...s, ...updated } : s));
+      const target = next.find((s) => s.id === id);
+      if (target) saveDocument(COLLECTIONS.SUPPLIERS, target);
+      return next;
+    });
+  };
+
+  const deleteSupplier = (id: string) => {
+    setSuppliers((prev) => prev.filter((s) => s.id !== id));
+    removeDocument(COLLECTIONS.SUPPLIERS, id);
   };
 
   // Bale Management
@@ -479,6 +621,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     saveDocument(COLLECTIONS.TRANSACTIONS, newTx);
   };
 
+  const updateBale = (id: string, updated: Partial<Bale>) => {
+    setBales((prev) => {
+      const next = prev.map((b) => {
+        if (b.id === id) {
+          const combined = { ...b, ...updated };
+          if (updated.totalPrice !== undefined || updated.quantity !== undefined) {
+            combined.pricePerPiece = combined.quantity > 0 ? Number((combined.totalPrice / combined.quantity).toFixed(2)) : 0;
+          }
+          return combined;
+        }
+        return b;
+      });
+      const target = next.find((b) => b.id === id);
+      if (target) saveDocument(COLLECTIONS.BALES, target);
+      return next;
+    });
+  };
+
   const updateBaleStatus = (id: string, status: 'sealed' | 'opened' | 'depleted') => {
     setBales((prev) => {
       const updated = prev.map((b) => (b.id === id ? { ...b, status } : b));
@@ -486,6 +646,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (target) saveDocument(COLLECTIONS.BALES, target);
       return updated;
     });
+  };
+
+  const deleteBale = (id: string) => {
+    setBales((prev) => prev.filter((b) => b.id !== id));
+    removeDocument(COLLECTIONS.BALES, id);
   };
 
   // Products
@@ -715,6 +880,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     saveDocument(COLLECTIONS.EXPENSE_ACCOUNTS, newAcc);
   };
 
+  const updateExpenseAccount = (id: string, updated: Partial<ExpenseAccount>) => {
+    setExpenseAccounts((prev) => {
+      const next = prev.map((a) => (a.id === id ? { ...a, ...updated } : a));
+      const target = next.find((a) => a.id === id);
+      if (target) saveDocument(COLLECTIONS.EXPENSE_ACCOUNTS, target);
+      return next;
+    });
+  };
+
+  const deleteExpenseAccount = (id: string) => {
+    setExpenseAccounts((prev) => prev.filter((a) => a.id !== id));
+    removeDocument(COLLECTIONS.EXPENSE_ACCOUNTS, id);
+  };
+
   const addExpense = (expenseData: Omit<Expense, 'id'>) => {
     const newExp: Expense = {
       ...expenseData,
@@ -750,6 +929,31 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     saveDocument(COLLECTIONS.TRANSACTIONS, newTx);
   };
 
+  const updateExpense = (id: string, updated: Partial<Expense>) => {
+    setExpenses((prev) => {
+      const next = prev.map((e) => (e.id === id ? { ...e, ...updated } : e));
+      const target = next.find((e) => e.id === id);
+      if (target) saveDocument(COLLECTIONS.EXPENSES, target);
+      return next;
+    });
+  };
+
+  const deleteExpense = (id: string) => {
+    const targetExp = expenses.find((e) => e.id === id);
+    if (targetExp) {
+      setExpenseAccounts((prev) => {
+        const next = prev.map((a) =>
+          a.id === targetExp.accountId ? { ...a, totalSpent: Math.max(0, a.totalSpent - targetExp.amount) } : a
+        );
+        const targetAcc = next.find((a) => a.id === targetExp.accountId);
+        if (targetAcc) saveDocument(COLLECTIONS.EXPENSE_ACCOUNTS, targetAcc);
+        return next;
+      });
+    }
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+    removeDocument(COLLECTIONS.EXPENSES, id);
+  };
+
   const addTransaction = (txData: Omit<Transaction, 'id'>) => {
     const newTx: Transaction = {
       ...txData,
@@ -757,6 +961,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     setTransactions((prev) => [newTx, ...prev]);
     saveDocument(COLLECTIONS.TRANSACTIONS, newTx);
+  };
+
+  const updateTransaction = (id: string, updated: Partial<Transaction>) => {
+    setTransactions((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, ...updated } : t));
+      const target = next.find((t) => t.id === id);
+      if (target) saveDocument(COLLECTIONS.TRANSACTIONS, target);
+      return next;
+    });
+  };
+
+  const deleteTransaction = (id: string) => {
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    removeDocument(COLLECTIONS.TRANSACTIONS, id);
   };
 
   // POS Sale Confirmation
@@ -889,11 +1107,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setForecastingTab,
         categories: categoriesWithStock,
         addCategory,
+        updateCategory,
+        deleteCategory,
         suppliers,
         addSupplier,
+        updateSupplier,
+        deleteSupplier,
         bales,
         addBale,
+        updateBale,
         updateBaleStatus,
+        deleteBale,
         products,
         addProduct,
         updateProduct,
@@ -909,10 +1133,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         cancelOrder,
         expenseAccounts,
         addExpenseAccount,
+        updateExpenseAccount,
+        deleteExpenseAccount,
         expenses,
         addExpense,
+        updateExpense,
+        deleteExpense,
         transactions,
         addTransaction,
+        updateTransaction,
+        deleteTransaction,
         transactionStats,
         processPosSale,
         resetAllData,

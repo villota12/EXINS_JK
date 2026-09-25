@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   BarChart3,
 } from 'lucide-react';
+import { SalesExpensesLineGraph } from './SalesExpensesLineGraph';
 
 type DatePreset = 'all' | 'today' | '7days' | '30days' | 'month' | 'custom';
 
@@ -395,124 +396,19 @@ export const Dashboard: React.FC = () => {
               </span>
               <div>
                 <h2 className="text-lg font-black tracking-tight">
-                  Monthly Sales and Expenses Comparison
+                  Sales and Expenses Comparison Line Graph
                 </h2>
                 <p className="text-xs text-stone-400 mt-0.5">
-                  Direct side-by-side comparison of monthly sales inflows and operating expense outflows.
+                  Multi-series continuous line comparison comparing store revenue inflows against operating expense outflows.
                 </p>
               </div>
             </div>
           </div>
-
-          {/* Direct Legend */}
-          <div className="flex items-center gap-4 text-xs font-semibold px-3 py-2 rounded-xl bg-stone-800/40 border border-stone-700/40">
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"></span>
-              <span className="text-stone-300">Sales Inflow</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-rose-500 ring-2 ring-rose-500/20"></span>
-              <span className="text-stone-300">Expense Outflow</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-amber-500 ring-2 ring-amber-500/20"></span>
-              <span className="text-stone-300">Net Profit</span>
-            </div>
-          </div>
         </div>
 
-        {/* Monthly Comparison Bar Chart (All amounts permanently visible - no hover required) */}
+        {/* Line Graph Visualizer */}
         <div className="space-y-6">
-          <div className="relative pt-8 pb-3 px-3 rounded-2xl bg-stone-950/40 border border-stone-800/60 overflow-x-auto">
-            {(() => {
-              const maxVal = Math.max(
-                ...monthlyComparisonData.map((d) => Math.max(d.sales, d.expense)),
-                10000
-              );
-
-              return (
-                <div className="min-w-[620px]">
-                  {/* Grid Lines & Y-Axis Labels */}
-                  <div className="relative h-72 flex flex-col justify-between pb-12 border-b border-stone-800/80">
-                    {[1, 0.75, 0.5, 0.25, 0].map((ratio, i) => (
-                      <div key={i} className="flex items-center gap-2 w-full">
-                        <span className="w-20 text-[11px] text-stone-400 text-right font-mono font-medium">
-                          ₱{Math.round(maxVal * ratio).toLocaleString()}
-                        </span>
-                        <div className="flex-1 h-px bg-stone-800/60 border-t border-dashed border-stone-700/40" />
-                      </div>
-                    ))}
-
-                    {/* Side-by-Side Monthly Columns with permanently printed amounts */}
-                    <div className="absolute inset-x-0 bottom-12 top-2 left-20 flex items-end justify-around px-4">
-                      {monthlyComparisonData.map((item) => {
-                        const salesH = Math.max(6, (item.sales / maxVal) * 100);
-                        const expH = Math.max(6, (item.expense / maxVal) * 100);
-                        const isCurrentMonth = item.key === '2026-09';
-
-                        return (
-                          <div
-                            key={item.key}
-                            className="flex flex-col items-center h-full justify-end flex-1 max-w-[110px]"
-                          >
-                            {/* Pair of Bars: Sales & Expenses */}
-                            <div className="flex items-end gap-2.5 w-full justify-center h-full pb-1">
-                              {/* Sales Bar */}
-                              <div className="flex flex-col items-center flex-1 max-w-[34px] h-full justify-end">
-                                <span className="text-[10px] font-bold text-emerald-400 font-mono mb-1 text-center whitespace-nowrap">
-                                  ₱{item.sales >= 1000 ? `${(item.sales / 1000).toFixed(1)}k` : item.sales}
-                                </span>
-                                <div
-                                  className="w-full bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t-lg shadow-md shadow-emerald-950/40"
-                                  style={{ height: `${salesH}%` }}
-                                />
-                              </div>
-
-                              {/* Expense Bar */}
-                              <div className="flex flex-col items-center flex-1 max-w-[34px] h-full justify-end">
-                                <span className="text-[10px] font-bold text-rose-400 font-mono mb-1 text-center whitespace-nowrap">
-                                  ₱{item.expense >= 1000 ? `${(item.expense / 1000).toFixed(1)}k` : item.expense}
-                                </span>
-                                <div
-                                  className="w-full bg-gradient-to-t from-rose-600 to-rose-400 rounded-t-lg shadow-md shadow-rose-950/40"
-                                  style={{ height: `${expH}%` }}
-                                />
-                              </div>
-                            </div>
-
-                            {/* Bottom Label: Month name & Net flow badge */}
-                            <div className="text-center mt-2.5 flex flex-col items-center gap-1">
-                              <span className="text-xs font-bold text-stone-200 flex items-center gap-1">
-                                <span>{item.short}</span>
-                                {isCurrentMonth && (
-                                  <span className="text-[9px] px-1 py-0.2 bg-orange-600/30 text-orange-400 border border-orange-500/40 rounded font-semibold">
-                                    Now
-                                  </span>
-                                )}
-                              </span>
-
-                              <span
-                                className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
-                                  item.net >= 0
-                                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/40'
-                                    : 'bg-rose-950/80 text-rose-300 border border-rose-800/40'
-                                }`}
-                              >
-                                {item.net >= 0 ? '+' : ''}₱
-                                {Math.abs(item.net) >= 1000
-                                  ? `${(item.net / 1000).toFixed(1)}k`
-                                  : item.net.toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
+          <SalesExpensesLineGraph data={monthlyComparisonData} isDark={isDark} />
 
           {/* Monthly Comparison Detailed Table (Clear, readable, student-friendly) */}
           <div className="rounded-2xl border border-stone-800/60 overflow-hidden bg-stone-950/30">

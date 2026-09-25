@@ -74,10 +74,12 @@ function MainApp() {
               <POS onOpenReceipt={(receipt) => setSelectedReceipt(receipt)} />
             )}
 
+          {activeTab === 'ai' && currentUser.role === 'owner' && <AIExinsWidget />}
+
           {/* Guard for unauthorized tab access */}
           {((currentUser.role === 'customer' && activeTab !== 'shop') ||
             (currentUser.role === 'staff' &&
-              (activeTab === 'dashboard' || activeTab === 'finance' || activeTab === 'forecasting'))) && (
+              (activeTab === 'dashboard' || activeTab === 'finance' || activeTab === 'forecasting' || activeTab === 'ai'))) && (
             <div className="text-center py-20 p-8 rounded-3xl border border-stone-800 bg-stone-900/80 backdrop-blur-xl max-w-lg mx-auto">
               <Shield className="w-12 h-12 text-orange-500 mx-auto mb-3" />
               <h2 className="text-xl font-bold">Access Restricted</h2>
@@ -112,9 +114,8 @@ function MainApp() {
         </footer>
       </div>
 
-      {/* Global Modals & AI Floating Widget (Attached directly to viewport for fixed position) */}
+      {/* Global Modals */}
       <ReceiptModal />
-      <AIExinsWidget />
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
     </div>
   );
