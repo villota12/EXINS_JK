@@ -24,6 +24,7 @@ export const Forecasting: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   // Build daily sales series from actual transactions
+  // Build daily sales series strictly from actual transactions (0 baseline)
   const timeSeriesData = useMemo(() => {
     // Group sales inflows by date
     const dailyMap: Record<string, number> = {};
@@ -33,37 +34,26 @@ export const Forecasting: React.FC = () => {
       .forEach((t) => {
         if (selectedCategory !== 'all') {
           // Check if category matches
-          const matches = t.category.toLowerCase().includes(selectedCategory.toLowerCase()) ||
+          const matches =
+            t.category.toLowerCase().includes(selectedCategory.toLowerCase()) ||
             t.description.toLowerCase().includes(selectedCategory.toLowerCase());
           if (!matches) return;
         }
         dailyMap[t.date] = (dailyMap[t.date] || 0) + t.inflow;
       });
 
-    // Ensure we have a sorted array of historical dates
-    const dates = Object.keys(dailyMap).sort();
-
-    // If few dates in test data, generate simulated realistic recent daily baseline for chart
-    if (dates.length < 7) {
-      const today = new Date();
-      for (let i = 10; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        const ds = d.toISOString().split('T')[0];
-        if (!dailyMap[ds]) {
-          // Realistic thrift daily sales (₱4,000 - ₱12,000)
-          dailyMap[ds] = Math.round(4500 + Math.sin(i * 1.5) * 2500 + Math.random() * 2000);
-        }
-      }
-    }
-
     const sortedDates = Object.keys(dailyMap).sort();
+
+    // If no sales recorded yet, return clean empty points
+    if (sortedDates.length === 0) {
+      return { actualPoints: [], predictedPoints: [], futurePoints: [] };
+    }
 
     // Compute EWMA: S_t = alpha * Y_t + (1 - alpha) * S_{t-1}
     const actualPoints: { date: string; value: number }[] = [];
     const predictedPoints: { date: string; value: number }[] = [];
 
-    let currentS = dailyMap[sortedDates[0]] || 5000;
+    let currentS = dailyMap[sortedDates[0]] || 0;
 
     sortedDates.forEach((date, idx) => {
       const actualY = dailyMap[date];
@@ -86,9 +76,7 @@ export const Forecasting: React.FC = () => {
       const nextDate = new Date(lastDate);
       nextDate.setDate(nextDate.getDate() + h);
       const ds = nextDate.toISOString().split('T')[0];
-
-      // Projected value slight cyclical pattern
-      const projected = Math.round(futureS * (1 + (Math.sin(h) * 0.05)));
+      const projected = Math.round(futureS);
       futurePoints.push({ date: ds, value: projected });
     }
 
@@ -103,52 +91,52 @@ export const Forecasting: React.FC = () => {
     ...timeSeriesData.predictedPoints.map((p) => p.value),
     ...timeSeriesData.futurePoints.map((p) => p.value),
   ];
-  const maxValue = Math.max(12000, ...allValues) * 1.15;
+  const maxValue = Math.max(1000, ...allValues) * 1.15;
   const minValue = 0;
 
   const totalPointsCount = timeSeriesData.actualPoints.length + timeSeriesData.futurePoints.length;
-  const getX = (index: number) => 40 + (index / (totalPointsCount - 1)) * (chartWidth - 60);
-  const getY = (val: number) => chartHeight - 30 - ((val - minValue) / (maxValue - minValue)) * (chartHeight - 60);
+  const getX = (index: number) =>
+    totalPointsCount > 1
+      ? 40 + (index / (totalPointsCount - 1)) * (chartWidth - 60)
+      : 40 + (chartWidth - 60) / 2;
+  const getY = (val: number) =>
+    maxValue > minValue
+      ? chartHeight - 30 - ((val - minValue) / (maxValue - minValue)) * (chartHeight - 60)
+      : chartHeight - 30;
 
   // SVG Path strings
-  const actualPath = timeSeriesData.actualPoints
-    .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${getX(idx)} ${getY(p.value)}`)
-    .join(' ');
+  const actualPath =
+    timeSeriesData.actualPoints.length > 0
+      ? timeSeriesData.actualPoints
+          .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${getX(idx)} ${getY(p.value)}`)
+          .join(' ')
+      : '';
 
-  const predictedPath = [
-    ...timeSeriesData.predictedPoints.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${getX(idx)} ${getY(p.value)}`),
-    ...timeSeriesData.futurePoints.map((p, idx) => `L ${getX(timeSeriesData.predictedPoints.length + idx)} ${getY(p.value)}`),
-  ].join(' ');
+  const predictedPath =
+    timeSeriesData.predictedPoints.length > 0
+      ? [
+          ...timeSeriesData.predictedPoints.map(
+            (p, idx) => `${idx === 0 ? 'M' : 'L'} ${getX(idx)} ${getY(p.value)}`
+          ),
+          ...timeSeriesData.futurePoints.map(
+            (p, idx) =>
+              `L ${getX(timeSeriesData.predictedPoints.length + idx)} ${getY(p.value)}`
+          ),
+        ].join(' ')
+      : '';
 
   // ================= 2. TOP 10 CUSTOMER SPENDERS =================
+  // Strictly calculated from actual customer orders (0 baseline, no mock data)
   const top10Customers = useMemo(() => {
     const customerMap: Record<string, CustomerSpender> = {};
 
-    // Seed realistic repeat buyers from Novaliches QC
-    const defaultSpenders: CustomerSpender[] = [
-      { name: 'Frank Edward Villota', email: 'villotafrankedward@gmail.com', totalOrders: 14, totalSpent: 19850 },
-      { name: 'Jessica Cruz', email: 'jessicacruz@gmail.com', totalOrders: 11, totalSpent: 15400 },
-      { name: 'Kevin Santos', email: 'kevin.santos99@yahoo.com', totalOrders: 9, totalSpent: 12600 },
-      { name: 'Maria Sophia Lopez', email: 'mariasophia@gmail.com', totalOrders: 8, totalSpent: 10450 },
-      { name: 'Alden Bautista', email: 'alden.b@gmail.com', totalOrders: 6, totalSpent: 8700 },
-      { name: 'Bea Alonzo Rivera', email: 'bea.rivera@outlook.com', totalOrders: 5, totalSpent: 6900 },
-      { name: 'Christian Mercado', email: 'chris.mercado@gmail.com', totalOrders: 4, totalSpent: 5850 },
-      { name: 'Danielle Anne Tan', email: 'danielle.tan@yahoo.com', totalOrders: 4, totalSpent: 5200 },
-      { name: 'Elijah Perez', email: 'elijah.perez@gmail.com', totalOrders: 3, totalSpent: 4100 },
-      { name: 'Francine Diaz Ramos', email: 'francine.ramos@gmail.com', totalOrders: 3, totalSpent: 3800 },
-    ];
-
-    defaultSpenders.forEach((s) => {
-      customerMap[s.email] = s;
-    });
-
-    // Update with live orders
     orders.forEach((o) => {
+      if (o.status === 'cancelled') return;
       const key = o.email || o.customerName;
       if (!customerMap[key]) {
         customerMap[key] = {
           name: o.customerName,
-          email: o.email,
+          email: o.email || 'N/A',
           totalOrders: 0,
           totalSpent: 0,
         };
@@ -337,132 +325,142 @@ export const Forecasting: React.FC = () => {
             </div>
 
             {/* SVG Graph Canvas */}
-            <div className="w-full overflow-x-auto">
-              <svg
-                viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-                className="w-full h-auto min-w-[600px] select-none"
-              >
-                {/* Background Grid Lines */}
-                {[0, 0.25, 0.5, 0.75, 1].map((pct, idx) => {
-                  const y = chartHeight - 30 - pct * (chartHeight - 60);
-                  const val = Math.round(minValue + pct * (maxValue - minValue));
-                  return (
-                    <g key={idx}>
-                      <line
-                        x1="35"
-                        y1={y}
-                        x2={chartWidth - 20}
-                        y2={y}
-                        stroke="rgba(255,255,255,0.08)"
-                        strokeDasharray="3 3"
-                      />
-                      <text x="5" y={y + 4} fill="#888" fontSize="9" fontFamily="monospace">
-                        ₱{(val / 1000).toFixed(0)}k
-                      </text>
-                    </g>
-                  );
-                })}
-
-                {/* Actual Sales Line (Emerald) */}
-                <path
-                  d={actualPath}
-                  fill="none"
-                  stroke="#10b981"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-
-                {/* Actual Points Dots */}
-                {timeSeriesData.actualPoints.map((p, idx) => (
-                  <circle
-                    key={idx}
-                    cx={getX(idx)}
-                    cy={getY(p.value)}
-                    r="3.5"
-                    fill="#10b981"
-                    stroke="#ffffff"
-                    strokeWidth="1.5"
-                  />
-                ))}
-
-                {/* Predicted / Future Forecast Line (Amber/Orange) */}
-                <path
-                  d={predictedPath}
-                  fill="none"
-                  stroke="#f97316"
-                  strokeWidth="2.5"
-                  strokeDasharray="5 4"
-                  strokeLinecap="round"
-                />
-
-                {/* Forecast Zone Highlight */}
-                {timeSeriesData.futurePoints.map((p, idx) => {
-                  const pointIdx = timeSeriesData.actualPoints.length + idx;
-                  const cx = getX(pointIdx);
-                  const cy = getY(p.value);
-                  return (
-                    <g key={idx}>
-                      <circle
-                        cx={cx}
-                        cy={cy}
-                        r="4.5"
-                        fill="#f97316"
-                        stroke="#ffffff"
-                        strokeWidth="2"
-                      />
-                      <text
-                        x={cx}
-                        y={cy - 9}
-                        fill="#f97316"
-                        fontSize="9"
-                        fontWeight="bold"
-                        textAnchor="middle"
-                        fontFamily="monospace"
-                      >
-                        ₱{p.value.toLocaleString()}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                {/* X-axis Date Labels */}
-                {timeSeriesData.actualPoints.map((p, idx) => {
-                  if (idx % 2 === 0 || idx === timeSeriesData.actualPoints.length - 1) {
+            {timeSeriesData.actualPoints.length === 0 ? (
+              <div className="py-16 text-center text-stone-400">
+                <TrendingUp className="w-10 h-10 text-orange-400/40 mx-auto mb-3" />
+                <p className="font-bold text-sm text-stone-200">No Sales Records Recorded Yet</p>
+                <p className="text-xs text-stone-400 mt-1 max-w-md mx-auto">
+                  Sales forecasting is currently at ₱0. As soon as you record storefront sales at the POS counter or through the Showcase Shop, EWMA algorithms will automatically plot live forecasting trends here!
+                </p>
+              </div>
+            ) : (
+              <div className="w-full overflow-x-auto">
+                <svg
+                  viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                  className="w-full h-auto min-w-[600px] select-none"
+                >
+                  {/* Background Grid Lines */}
+                  {[0, 0.25, 0.5, 0.75, 1].map((pct, idx) => {
+                    const y = chartHeight - 30 - pct * (chartHeight - 60);
+                    const val = Math.round(minValue + pct * (maxValue - minValue));
                     return (
-                      <text
-                        key={idx}
-                        x={getX(idx)}
-                        y={chartHeight - 8}
-                        fill="#888"
-                        fontSize="9"
-                        textAnchor="middle"
-                        fontFamily="sans-serif"
-                      >
-                        {p.date.slice(5)}
-                      </text>
+                      <g key={idx}>
+                        <line
+                          x1="35"
+                          y1={y}
+                          x2={chartWidth - 20}
+                          y2={y}
+                          stroke="rgba(255,255,255,0.08)"
+                          strokeDasharray="3 3"
+                        />
+                        <text x="5" y={y + 4} fill="#888" fontSize="9" fontFamily="monospace">
+                          ₱{(val / 1000).toFixed(0)}k
+                        </text>
+                      </g>
                     );
-                  }
-                  return null;
-                })}
+                  })}
 
-                {/* Forecast Horizon Labels */}
-                {timeSeriesData.futurePoints.map((p, idx) => (
-                  <text
-                    key={idx}
-                    x={getX(timeSeriesData.actualPoints.length + idx)}
-                    y={chartHeight - 8}
-                    fill="#f97316"
-                    fontSize="9"
-                    fontWeight="bold"
-                    textAnchor="middle"
-                    fontFamily="sans-serif"
-                  >
-                    +{idx + 1}d
-                  </text>
-                ))}
-              </svg>
-            </div>
+                  {/* Actual Sales Line (Emerald) */}
+                  <path
+                    d={actualPath}
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+
+                  {/* Actual Points Dots */}
+                  {timeSeriesData.actualPoints.map((p, idx) => (
+                    <circle
+                      key={idx}
+                      cx={getX(idx)}
+                      cy={getY(p.value)}
+                      r="3.5"
+                      fill="#10b981"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
+                    />
+                  ))}
+
+                  {/* Predicted / Future Forecast Line (Amber/Orange) */}
+                  <path
+                    d={predictedPath}
+                    fill="none"
+                    stroke="#f97316"
+                    strokeWidth="2.5"
+                    strokeDasharray="5 4"
+                    strokeLinecap="round"
+                  />
+
+                  {/* Forecast Zone Highlight */}
+                  {timeSeriesData.futurePoints.map((p, idx) => {
+                    const pointIdx = timeSeriesData.actualPoints.length + idx;
+                    const cx = getX(pointIdx);
+                    const cy = getY(p.value);
+                    return (
+                      <g key={idx}>
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r="4.5"
+                          fill="#f97316"
+                          stroke="#ffffff"
+                          strokeWidth="2"
+                        />
+                        <text
+                          x={cx}
+                          y={cy - 9}
+                          fill="#f97316"
+                          fontSize="9"
+                          fontWeight="bold"
+                          textAnchor="middle"
+                          fontFamily="monospace"
+                        >
+                          ₱{p.value.toLocaleString()}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* X-axis Date Labels */}
+                  {timeSeriesData.actualPoints.map((p, idx) => {
+                    if (idx % 2 === 0 || idx === timeSeriesData.actualPoints.length - 1) {
+                      return (
+                        <text
+                          key={idx}
+                          x={getX(idx)}
+                          y={chartHeight - 8}
+                          fill="#888"
+                          fontSize="9"
+                          textAnchor="middle"
+                          fontFamily="sans-serif"
+                        >
+                          {p.date.slice(5)}
+                        </text>
+                      );
+                    }
+                    return null;
+                  })}
+
+                  {/* Forecast Horizon Labels */}
+                  {timeSeriesData.futurePoints.map((p, idx) => (
+                    <text
+                      key={idx}
+                      x={getX(timeSeriesData.actualPoints.length + idx)}
+                      y={chartHeight - 8}
+                      fill="#f97316"
+                      fontSize="9"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                      fontFamily="sans-serif"
+                    >
+                      +{idx + 1}d
+                    </text>
+                  ))}
+                </svg>
+              </div>
+            )}
 
             {/* Practical Student / Business Insights Card */}
             <div className="p-4 rounded-2xl bg-stone-800/40 border border-stone-700/50 flex items-start gap-3 text-xs leading-relaxed">
@@ -476,13 +474,15 @@ export const Forecasting: React.FC = () => {
                 projected daily revenue is estimated at approx{' '}
                 <strong className="text-emerald-400">
                   ₱
-                  {(
-                    timeSeriesData.futurePoints.reduce((sum, p) => sum + p.value, 0) /
-                    timeSeriesData.futurePoints.length
-                  ).toLocaleString('en-PH', { maximumFractionDigits: 0 })}
+                  {timeSeriesData.futurePoints.length > 0
+                    ? (
+                        timeSeriesData.futurePoints.reduce((sum, p) => sum + p.value, 0) /
+                        timeSeriesData.futurePoints.length
+                      ).toLocaleString('en-PH', { maximumFractionDigits: 0 })
+                    : '0'}{' '}
                   /day
                 </strong>
-                . Ensure your popular jackets, sneakers, and caps are adequately restocked before weekend rushes!
+                . Record store transactions to generate live restocking predictions!
               </div>
             </div>
           </div>
@@ -522,53 +522,65 @@ export const Forecasting: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-800/50">
-                  {top10Customers.map((cust, idx) => {
-                    const rank = idx + 1;
-                    const isTop1 = rank === 1;
-                    const isTop2 = rank === 2;
-                    const isTop3 = rank === 3;
+                  {top10Customers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-14 text-center text-stone-400">
+                        <Award className="w-8 h-8 text-orange-400/40 mx-auto mb-2" />
+                        <p className="font-bold text-xs text-stone-300">No VIP Shoppers Recorded Yet</p>
+                        <p className="text-[11px] text-stone-500 mt-0.5">
+                          As customers complete purchases at the POS or online Showcase Shop, your top 10 spenders will be ranked here.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    top10Customers.map((cust, idx) => {
+                      const rank = idx + 1;
+                      const isTop1 = rank === 1;
+                      const isTop2 = rank === 2;
+                      const isTop3 = rank === 3;
 
-                    return (
-                      <tr
-                        key={idx}
-                        className={`hover:bg-orange-500/5 transition-colors ${
-                          isTop1
-                            ? 'bg-amber-500/10'
-                            : isTop2
-                            ? 'bg-stone-500/10'
-                            : isTop3
-                            ? 'bg-orange-950/20'
-                            : ''
-                        }`}
-                      >
-                        <td className="py-4 px-4">
-                          {isTop1 ? (
-                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-black border border-amber-500/40 text-xs shadow-md">
-                              🥇 #1 Champion Spender
-                            </span>
-                          ) : isTop2 ? (
-                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-400/20 text-slate-200 font-black border border-slate-400/40 text-xs">
-                              🥈 #2 Silver Spender
-                            </span>
-                          ) : isTop3 ? (
-                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-800/20 text-amber-400 font-black border border-amber-800/40 text-xs">
-                              🥉 #3 Bronze Spender
-                            </span>
-                          ) : (
-                            <span className="font-mono font-bold text-stone-400 pl-2">#{rank}</span>
-                          )}
-                        </td>
-                        <td className="py-4 px-4 font-black text-sm text-stone-100">{cust.name}</td>
-                        <td className="py-4 px-4 text-stone-400">{cust.email}</td>
-                        <td className="py-4 px-4 font-bold text-stone-300">
-                          {cust.totalOrders} completed orders
-                        </td>
-                        <td className="py-4 px-4 text-right font-black text-sm text-orange-400">
-                          ₱{cust.totalSpent.toLocaleString()}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      return (
+                        <tr
+                          key={idx}
+                          className={`hover:bg-orange-500/5 transition-colors ${
+                            isTop1
+                              ? 'bg-amber-500/10'
+                              : isTop2
+                              ? 'bg-stone-500/10'
+                              : isTop3
+                              ? 'bg-orange-950/20'
+                              : ''
+                          }`}
+                        >
+                          <td className="py-4 px-4">
+                            {isTop1 ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-black border border-amber-500/40 text-xs shadow-md">
+                                🥇 #1 Champion Spender
+                              </span>
+                            ) : isTop2 ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-400/20 text-slate-200 font-black border border-slate-400/40 text-xs">
+                                🥈 #2 Silver Spender
+                              </span>
+                            ) : isTop3 ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-800/20 text-amber-400 font-black border border-amber-800/40 text-xs">
+                                🥉 #3 Bronze Spender
+                              </span>
+                            ) : (
+                              <span className="font-mono font-bold text-stone-400 pl-2">#{rank}</span>
+                            )}
+                          </td>
+                          <td className="py-4 px-4 font-black text-sm text-stone-100">{cust.name}</td>
+                          <td className="py-4 px-4 text-stone-400">{cust.email}</td>
+                          <td className="py-4 px-4 font-bold text-stone-300">
+                            {cust.totalOrders} completed orders
+                          </td>
+                          <td className="py-4 px-4 text-right font-black text-sm text-orange-400">
+                            ₱{cust.totalSpent.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>

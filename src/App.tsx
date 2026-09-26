@@ -6,12 +6,11 @@ import { ShowcaseShop } from './components/ShowcaseShop';
 import { InventoryManagement } from './components/InventoryManagement';
 import { FinanceManagement } from './components/FinanceManagement';
 import { Forecasting } from './components/Forecasting';
-import { BarcodeGenerator } from './components/BarcodeGenerator';
 import { POS } from './components/POS';
 import { ReceiptModal } from './components/ReceiptModal';
 import { AIExinsWidget } from './components/AIExinsWidget';
 import { AuthModal } from './components/AuthModal';
-import { ShoppingBag, Heart, Shield, Sparkles } from 'lucide-react';
+import { Shield } from 'lucide-react';
 
 const BACKGROUND_IMAGE_URL =
   'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1920&q=80';
@@ -33,7 +32,7 @@ function MainApp() {
         backgroundAttachment: 'fixed',
       }}
     >
-      {/* Warm Brown & Orange Glassmorphism Dark/Light Backdrop Overlay - subtle tint to keep background clearly visible */}
+      {/* Warm Brown & Orange Glassmorphism Dark/Light Backdrop Overlay */}
       <div
         className={`min-h-screen transition-colors duration-300 ${
           isDark
@@ -52,7 +51,10 @@ function MainApp() {
           {activeTab === 'dashboard' && currentUser.role === 'owner' && <Dashboard />}
 
           {activeTab === 'shop' && (
-            <ShowcaseShop onOpenReceipt={(receipt) => setSelectedReceipt(receipt)} />
+            <ShowcaseShop
+              onOpenReceipt={(receipt) => setSelectedReceipt(receipt)}
+              onOpenAuth={() => setIsAuthOpen(true)}
+            />
           )}
 
           {activeTab === 'inventory' &&
@@ -63,11 +65,6 @@ function MainApp() {
           {activeTab === 'finance' && currentUser.role === 'owner' && <FinanceManagement />}
 
           {activeTab === 'forecasting' && currentUser.role === 'owner' && <Forecasting />}
-
-          {activeTab === 'barcode' &&
-            (currentUser.role === 'owner' || currentUser.role === 'staff') && (
-              <BarcodeGenerator />
-            )}
 
           {activeTab === 'pos' &&
             (currentUser.role === 'owner' || currentUser.role === 'staff') && (
@@ -85,7 +82,7 @@ function MainApp() {
               <h2 className="text-xl font-bold">Access Restricted</h2>
               <p className="text-xs text-stone-400 mt-2">
                 Your current role is <strong className="text-orange-400 capitalize">{currentUser.role}</strong>.
-                Switch to <strong className="text-white">Owner</strong> via the top right role switcher to explore all modules.
+                Sign in with the <strong className="text-white">Owner</strong> account to access dashboard, finance, and forecasting modules.
               </p>
             </div>
           )}

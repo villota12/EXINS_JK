@@ -101,6 +101,7 @@ export interface ExpenseAccount {
   monthlyBudget: number;
   description: string;
   totalSpent: number;
+  color?: string;
 }
 
 export interface Expense {

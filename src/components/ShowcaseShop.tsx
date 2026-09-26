@@ -25,9 +25,10 @@ import {
 
 interface ShowcaseShopProps {
   onOpenReceipt: (receipt: any) => void;
+  onOpenAuth?: () => void;
 }
 
-export const ShowcaseShop: React.FC<ShowcaseShopProps> = ({ onOpenReceipt }) => {
+export const ShowcaseShop: React.FC<ShowcaseShopProps> = ({ onOpenReceipt, onOpenAuth }) => {
   const {
     currentUser,
     categories,
@@ -98,8 +99,19 @@ export const ShowcaseShop: React.FC<ShowcaseShopProps> = ({ onOpenReceipt }) => 
 
   // Handlers for cart
   const handleAddToCart = (product: Product) => {
+    const isGuest = !currentUser.email || currentUser.id === 'guest' || currentUser.id === 'user-guest';
+    if (isGuest) {
+      setStockAlert('Please sign in or create an account to start adding items to your cart.');
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
+
     const res = addToCart(product, 1);
     if (!res.success) {
+      if (res.message === 'AUTH_REQUIRED') {
+        if (onOpenAuth) onOpenAuth();
+        return;
+      }
       setStockAlert(res.message);
       setTimeout(() => setStockAlert(null), 3500);
     } else {

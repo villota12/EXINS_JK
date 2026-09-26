@@ -105,6 +105,13 @@ export const SalesExpensesLineGraph: React.FC<SalesExpensesLineGraphProps> = ({
             <span className="text-stone-300">Expense Inflow</span>
           </div>
         </div>
+
+        {data.every((d) => d.sales === 0 && d.expense === 0) && (
+          <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 px-3 py-1 rounded-xl border border-emerald-500/30 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            Clean 0 Baseline — Ready for Real-World Transactions
+          </span>
+        )}
       </div>
 
       {/* ================= PURE LINE GRAPH ONLY ================= */}

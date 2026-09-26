@@ -29,11 +29,15 @@ import {
 } from '../data/initialData';
 import {
   auth,
+  db,
+  doc,
+  getDocFromServer,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
-  signInAnonymously,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
   checkFirestoreConnection,
   FirebaseUser,
 } from '../firebase/config';
@@ -44,11 +48,13 @@ import {
   subscribeToCollection,
   seedCollectionIfEmpty,
   syncUserProfile,
+  clearAllInventoryAndFinancialRecords,
 } from '../firebase/dbService';
 
 export const ADMIN_EMAIL = 'villotafrankedward@gmail.com';
 export const ADMIN_PASS = '12345678';
 export const STAFF_EMAIL = 'frankvillota905@gmail.com';
+export const STAFF_EMAIL_TYPO = 'frankvillota905@gmail.copm';
 export const STAFF_PASS = '12345678';
 
 interface StoreContextType {
@@ -63,12 +69,25 @@ interface StoreContextType {
   authError: string | null;
   clearAuthError: () => void;
   signInWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string; targetRole?: UserRole }>;
+  signInWithGoogle: () => Promise<{
+    success: boolean;
+    error?: string;
+    targetRole?: UserRole;
+    needsDetails?: boolean;
+    tempUser?: Partial<User>;
+  }>;
+  completeGoogleSignUp: (params: {
+    name: string;
+    phone: string;
+    address: string;
+    tempUser: Partial<User>;
+  }) => Promise<{ success: boolean; error?: string }>;
   signUpWithEmail: (
     email: string,
     pass: string,
     name: string,
-    phone?: string,
-    address?: string
+    phone: string,
+    address: string
   ) => Promise<{ success: boolean; error?: string }>;
   signOutCurrentUser: () => Promise<void>;
 
@@ -77,8 +96,8 @@ interface StoreContextType {
   setActiveTab: (tab: string) => void;
   shopView: 'browse' | 'orders';
   setShopView: (view: 'browse' | 'orders') => void;
-  inventoryTab: 'bales' | 'categories' | 'products' | 'suppliers';
-  setInventoryTab: (tab: 'bales' | 'categories' | 'products' | 'suppliers') => void;
+  inventoryTab: 'suppliers' | 'categories' | 'bales' | 'products';
+  setInventoryTab: (tab: 'suppliers' | 'categories' | 'bales' | 'products') => void;
   financeTab: 'accounts' | 'record' | 'history';
   setFinanceTab: (tab: 'accounts' | 'record' | 'history') => void;
   forecastingTab: 'ewma' | 'top_spenders' | 'stats';
@@ -156,7 +175,26 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'exins_management_store_data_v1';
+const STORAGE_KEY = 'exins_empty_prod_v4';
+
+// Aggressive one-time purge of ANY old mock data from previous builds/sessions
+try {
+  const versionKey = 'exins_data_version';
+  const currentVer = typeof window !== 'undefined' ? localStorage.getItem(versionKey) : null;
+  if (currentVer !== 'v4_pure_empty_production') {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('exins_') && k !== 'exins_theme') {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+    localStorage.setItem(versionKey, 'v4_pure_empty_production');
+  }
+} catch (e) {
+  console.warn('LocalStorage reset note:', e);
+}
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Theme state
@@ -173,15 +211,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
-  // Auth & Roles
-  const [currentUser, setCurrentUser] = useState<User>(() => {
-    const savedEmail = localStorage.getItem('exins_current_user_email');
-    if (savedEmail) {
-      const normalized = savedEmail.toLowerCase();
-      if (normalized === ADMIN_EMAIL.toLowerCase()) return initialUsers[0];
-      if (normalized === STAFF_EMAIL.toLowerCase()) return initialUsers[1];
-    }
-    return initialUsers[2]; // Default to guest shopper
+  // Auth & Roles: ALWAYS start as Guest Shopper when opening the system link
+  const [currentUser, setCurrentUser] = useState<User>({
+    id: 'guest',
+    name: 'Guest Shopper',
+    email: '',
+    role: 'customer',
   });
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
@@ -189,22 +224,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const clearAuthError = () => setAuthError(null);
 
-  // Navigation tabs - customer lands on showcase shop, admin on dashboard, staff on POS
-  const [activeTab, setActiveTab] = useState<string>(() => {
-    const savedEmail = localStorage.getItem('exins_current_user_email');
-    if (savedEmail?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) return 'dashboard';
-    if (savedEmail?.toLowerCase() === STAFF_EMAIL.toLowerCase()) return 'pos';
-    return 'shop';
-  });
+  // Navigation tabs: Defaults to 'shop' (Showcase Shop) for guest shoppers
+  const [activeTab, setActiveTab] = useState<string>('shop');
   const [shopView, setShopView] = useState<'browse' | 'orders'>('browse');
-  const [inventoryTab, setInventoryTab] = useState<'bales' | 'categories' | 'products' | 'suppliers'>('bales');
+
+  // Inventory tab order: Bale Supplier, Product Categories, Bale Management, Product List
+  const [inventoryTab, setInventoryTab] = useState<'suppliers' | 'categories' | 'bales' | 'products'>('suppliers');
   const [financeTab, setFinanceTab] = useState<'accounts' | 'record' | 'history'>('accounts');
   const [forecastingTab, setForecastingTab] = useState<'ewma' | 'top_spenders' | 'stats'>('ewma');
 
   // Printable receipt modal state
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
 
-  // Entities state
+  // Entities state - Clean and initialized with zero recorded inventory/expenses for production
   const [categories, setCategories] = useState<Category[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY}_categories`);
     return saved ? JSON.parse(saved) : initialCategories;
@@ -268,15 +300,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (isMounted) setIsFirebaseConnected(false);
       });
 
-    // Seed initial collections in Firestore if empty
-    seedCollectionIfEmpty(COLLECTIONS.CATEGORIES, initialCategories);
-    seedCollectionIfEmpty(COLLECTIONS.SUPPLIERS, initialSuppliers);
-    seedCollectionIfEmpty(COLLECTIONS.BALES, initialBales);
-    seedCollectionIfEmpty(COLLECTIONS.PRODUCTS, initialProducts);
-    seedCollectionIfEmpty(COLLECTIONS.ORDERS, initialOrders);
-    seedCollectionIfEmpty(COLLECTIONS.EXPENSE_ACCOUNTS, initialExpenseAccounts);
-    seedCollectionIfEmpty(COLLECTIONS.EXPENSES, initialExpenses);
-    seedCollectionIfEmpty(COLLECTIONS.TRANSACTIONS, initialTransactions);
+    // Check if initial production clean was performed
+    const hasPurgedOldData = localStorage.getItem('exins_production_clean_v3');
+    if (!hasPurgedOldData) {
+      // Clear legacy dummy data from Firestore and local storage
+      clearAllInventoryAndFinancialRecords().catch((err) =>
+        console.warn('Initial cleanup notice:', err)
+      );
+      localStorage.setItem('exins_production_clean_v3', 'true');
+    }
 
     // Listen to Firebase Auth state
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -285,60 +317,59 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (user && user.email) {
         setIsFirebaseConnected(true);
         const normalized = user.email.toLowerCase();
-        const detectedRole: UserRole =
-          normalized === ADMIN_EMAIL.toLowerCase()
-            ? 'owner'
-            : normalized === STAFF_EMAIL.toLowerCase()
-            ? 'staff'
-            : 'customer';
+        const isAdmin = normalized === ADMIN_EMAIL.toLowerCase();
+        const isStaff =
+          normalized === STAFF_EMAIL.toLowerCase() ||
+          normalized === STAFF_EMAIL_TYPO.toLowerCase();
+
+        const detectedRole: UserRole = isAdmin ? 'owner' : isStaff ? 'staff' : 'customer';
         const displayName =
           detectedRole === 'owner'
             ? 'Frank Edward (Owner)'
             : detectedRole === 'staff'
             ? 'Frank Villota (Staff)'
             : user.displayName || normalized.split('@')[0];
-        setCurrentUser((prev) => ({
+
+        setCurrentUser({
           id: user.uid,
-          name: displayName || prev.name,
-          email: user.email || prev.email,
+          name: displayName,
+          email: user.email,
           role: detectedRole,
-          phone: prev.phone,
-          address: prev.address,
-        }));
+        });
       }
     });
 
-    // Real-time Firestore Listeners
+    // Real-time Firestore Listeners - ensures all users and devices see database updates live
     const unsubCategories = subscribeToCollection<Category>(COLLECTIONS.CATEGORIES, (items) => {
-      if (items.length > 0 && isMounted) setCategories(items);
+      if (isMounted) setCategories(items);
     });
 
     const unsubSuppliers = subscribeToCollection<Supplier>(COLLECTIONS.SUPPLIERS, (items) => {
-      if (items.length > 0 && isMounted) setSuppliers(items);
+      if (isMounted) setSuppliers(items);
     });
 
     const unsubBales = subscribeToCollection<Bale>(COLLECTIONS.BALES, (items) => {
-      if (items.length > 0 && isMounted) setBales(items);
+      if (isMounted) setBales(items);
     });
 
     const unsubProducts = subscribeToCollection<Product>(COLLECTIONS.PRODUCTS, (items) => {
-      if (items.length > 0 && isMounted) setProducts(items);
+      if (isMounted) setProducts(items);
     });
 
     const unsubOrders = subscribeToCollection<Order>(COLLECTIONS.ORDERS, (items) => {
-      if (items.length > 0 && isMounted) setOrders(items);
+      if (isMounted) setOrders(items);
     });
 
     const unsubAccounts = subscribeToCollection<ExpenseAccount>(COLLECTIONS.EXPENSE_ACCOUNTS, (items) => {
-      if (items.length > 0 && isMounted) setExpenseAccounts(items);
+      if (isMounted) setExpenseAccounts(items);
     });
 
     const unsubExpenses = subscribeToCollection<Expense>(COLLECTIONS.EXPENSES, (items) => {
-      if (items.length > 0 && isMounted) setExpenses(items);
+      if (isMounted) setExpenses(items);
     });
 
     const unsubTxs = subscribeToCollection<Transaction>(COLLECTIONS.TRANSACTIONS, (items) => {
-      if (items.length > 0 && isMounted) setTransactions(items);
+      if (isMounted) setTransactions(items);
     });
 
     return () => {
@@ -386,11 +417,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setAuthError(null);
       const normalizedEmail = email.trim().toLowerCase();
       const isAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
-      const isStaff = normalizedEmail === STAFF_EMAIL.toLowerCase();
+      const isStaff =
+        normalizedEmail === STAFF_EMAIL.toLowerCase() ||
+        normalizedEmail === STAFF_EMAIL_TYPO.toLowerCase();
 
-      // Check fixed passwords for management accounts
+      // Check designated passwords
       if (isAdmin && pass !== ADMIN_PASS) {
-        const msg = 'Incorrect password for Administrator account.';
+        const msg = 'Incorrect password for Owner account.';
         setAuthError(msg);
         return { success: false, error: msg };
       }
@@ -416,7 +449,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (user.displayName) userDisplayName = user.displayName;
       } catch (fbErr: any) {
         console.warn('Firebase signIn notice:', fbErr?.code || fbErr?.message);
-        // If admin or staff and account not found yet in Firebase, auto-create it
+        // If owner or staff and user not yet provisioned in Firebase Auth, auto-create
         if (
           (isAdmin || isStaff) &&
           (fbErr?.code === 'auth/user-not-found' || fbErr?.code === 'auth/invalid-credential')
@@ -442,11 +475,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
 
       setCurrentUser(appUser);
-      localStorage.setItem(`exins_user_role_${userId}`, detectedRole);
-      localStorage.setItem('exins_current_user_email', normalizedEmail);
       syncUserProfile(appUser);
 
-      // Route to destination view
+      // Route to designated view based on requested role
       if (detectedRole === 'owner') {
         setActiveTab('dashboard');
       } else if (detectedRole === 'staff') {
@@ -457,8 +488,130 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       return { success: true, targetRole: detectedRole };
     } catch (err: any) {
-      console.warn('Sign In general error:', err);
+      console.error('Sign in error:', err);
+      const msg = err.message || 'Failed to sign in. Please verify credentials.';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  const signInWithGoogle = async (): Promise<{
+    success: boolean;
+    error?: string;
+    targetRole?: UserRole;
+    needsDetails?: boolean;
+    tempUser?: Partial<User>;
+  }> => {
+    try {
+      setAuthError(null);
+      const provider = new GoogleAuthProvider();
+      const userCred = await signInWithPopup(auth, provider);
+      const user = userCred.user;
+      const normalizedEmail = (user.email || '').trim().toLowerCase();
+
+      const isAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
+      const isStaff =
+        normalizedEmail === STAFF_EMAIL.toLowerCase() ||
+        normalizedEmail === STAFF_EMAIL_TYPO.toLowerCase();
+
+      if (isAdmin) {
+        const appUser: User = {
+          id: user.uid,
+          name: 'Frank Edward (Owner)',
+          email: normalizedEmail,
+          role: 'owner',
+        };
+        setCurrentUser(appUser);
+        await syncUserProfile(appUser);
+        setActiveTab('dashboard');
+        return { success: true, targetRole: 'owner' };
+      }
+
+      if (isStaff) {
+        const appUser: User = {
+          id: user.uid,
+          name: 'Frank Villota (Staff)',
+          email: normalizedEmail,
+          role: 'staff',
+        };
+        setCurrentUser(appUser);
+        await syncUserProfile(appUser);
+        setActiveTab('pos');
+        return { success: true, targetRole: 'staff' };
+      }
+
+      // Customer account flow:
+      // Check existing customer profile in Firestore to see if phone & address are present
+      const tempUser: Partial<User> = {
+        id: user.uid,
+        name: user.displayName || normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        role: 'customer',
+      };
+
+      try {
+        const userDocRef = doc(db, COLLECTIONS.USERS, user.uid);
+        const userDocSnap = await getDocFromServer(userDocRef);
+        if (userDocSnap.exists()) {
+          const data = userDocSnap.data() as User;
+          if (data.phone && data.address && data.name) {
+            setCurrentUser(data);
+            setActiveTab('shop');
+            return { success: true, targetRole: 'customer' };
+          }
+          if (data.phone) tempUser.phone = data.phone;
+          if (data.address) tempUser.address = data.address;
+          if (data.name) tempUser.name = data.name;
+        }
+      } catch (err) {
+        console.warn('Check existing user doc note:', err);
+      }
+
+      // Customer needs to input required contact phone and delivery address
+      return {
+        success: true,
+        needsDetails: true,
+        tempUser,
+      };
+    } catch (err: any) {
+      console.error('Google sign in error:', err);
       const msg = err.code ? err.code.replace('auth/', '').replace(/-/g, ' ') : err.message;
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  const completeGoogleSignUp = async (params: {
+    name: string;
+    phone: string;
+    address: string;
+    tempUser: Partial<User>;
+  }): Promise<{ success: boolean; error?: string }> => {
+    try {
+      setAuthError(null);
+      if (!params.name.trim() || !params.phone.trim() || !params.address.trim()) {
+        const msg = 'Full name, contact phone, and delivery address are all required.';
+        setAuthError(msg);
+        return { success: false, error: msg };
+      }
+
+      const appUser: User = {
+        id: params.tempUser.id || `user-${Date.now()}`,
+        name: params.name.trim(),
+        email: params.tempUser.email || '',
+        role: 'customer',
+        phone: params.phone.trim(),
+        address: params.address.trim(),
+      };
+
+      setCurrentUser(appUser);
+      await syncUserProfile(appUser);
+      setActiveTab('shop');
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Complete Google sign up error:', err);
+      const msg = err.message || 'Failed to complete profile registration.';
       setAuthError(msg);
       return { success: false, error: msg };
     }
@@ -468,35 +621,61 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     email: string,
     pass: string,
     name: string,
-    phone?: string,
-    address?: string
+    phone: string,
+    address: string
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       setAuthError(null);
       const normalizedEmail = email.trim().toLowerCase();
 
-      // Ensure public users cannot register as admin or staff
-      if (normalizedEmail === ADMIN_EMAIL.toLowerCase() || normalizedEmail === STAFF_EMAIL.toLowerCase()) {
+      // Validate all required fields
+      if (
+        !name.trim() ||
+        !normalizedEmail ||
+        !pass.trim() ||
+        !phone.trim() ||
+        !address.trim()
+      ) {
+        const errorMsg = 'Full name, email, password, contact phone, and delivery address are all required.';
+        setAuthError(errorMsg);
+        return { success: false, error: errorMsg };
+      }
+
+      // Guard management emails
+      if (
+        normalizedEmail === ADMIN_EMAIL.toLowerCase() ||
+        normalizedEmail === STAFF_EMAIL.toLowerCase() ||
+        normalizedEmail === STAFF_EMAIL_TYPO.toLowerCase()
+      ) {
         const errorMsg = 'This management account is reserved. Please sign in with your credentials.';
         setAuthError(errorMsg);
         return { success: false, error: errorMsg };
       }
 
-      // Customers only
-      const userCred = await createUserWithEmailAndPassword(auth, normalizedEmail, pass);
-      const user = userCred.user;
+      // Customer account creation in Firebase Auth
+      let userId = `user-${Date.now()}`;
+      try {
+        const userCred = await createUserWithEmailAndPassword(auth, normalizedEmail, pass);
+        userId = userCred.user.uid;
+      } catch (fbErr: any) {
+        console.warn('Firebase createUser notice:', fbErr);
+        if (fbErr.code !== 'auth/email-already-in-use') {
+          const msg = fbErr.code ? fbErr.code.replace('auth/', '').replace(/-/g, ' ') : fbErr.message;
+          setAuthError(msg);
+          return { success: false, error: msg };
+        }
+      }
+
       const appUser: User = {
-        id: user.uid,
-        name: name || normalizedEmail.split('@')[0],
+        id: userId,
+        name: name.trim(),
         email: normalizedEmail,
         role: 'customer',
-        phone,
-        address,
+        phone: phone.trim(),
+        address: address.trim(),
       };
 
       setCurrentUser(appUser);
-      localStorage.setItem(`exins_user_role_${user.uid}`, 'customer');
-      localStorage.setItem('exins_current_user_email', normalizedEmail);
       await syncUserProfile(appUser);
       setActiveTab('shop');
 
@@ -516,8 +695,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.warn('Sign out note:', err);
     }
     setFirebaseUser(null);
-    localStorage.removeItem('exins_current_user_email');
-    const guestUser: User = initialUsers[2];
+    const guestUser: User = {
+      id: 'guest',
+      name: 'Guest Shopper',
+      email: '',
+      role: 'customer',
+    };
     setCurrentUser(guestUser);
     setActiveTab('shop');
   };
@@ -584,17 +767,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     removeDocument(COLLECTIONS.SUPPLIERS, id);
   };
 
-  // Bale Management
+  // Bales
   const addBale = (baleData: Omit<Bale, 'id' | 'pricePerPiece' | 'totalSales'>) => {
-    const pricePerPiece = baleData.quantity > 0 ? Number((baleData.totalPrice / baleData.quantity).toFixed(2)) : 0;
+    const pricePerPiece =
+      baleData.quantity > 0 ? Number((baleData.totalPrice / baleData.quantity).toFixed(2)) : 0;
     const newBale: Bale = {
       ...baleData,
       id: `bale-${Date.now()}`,
+      code: `EXINS-BALE-${String(bales.length + 1).padStart(3, '0')}`,
       pricePerPiece,
       totalSales: 0,
+      status: 'sealed',
+      dateAdded: new Date().toISOString().split('T')[0],
     };
-
-    setBales((prev) => [newBale, ...prev]);
+    setBales((prev) => [...prev, newBale]);
     saveDocument(COLLECTIONS.BALES, newBale);
 
     // Increment supplier bales count
@@ -681,8 +867,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     removeDocument(COLLECTIONS.PRODUCTS, id);
   };
 
-  // Cart operations with stock checking!
+  // Cart operations with stock checking and mandatory authentication gate
   const addToCart = (product: Product, quantity = 1): { success: boolean; message: string } => {
+    const isGuest = !currentUser.email || currentUser.id === 'guest' || currentUser.id === 'user-guest';
+    if (isGuest) {
+      return { success: false, message: 'AUTH_REQUIRED' };
+    }
+
     const existing = cart.find((item) => item.product.id === product.id);
     const currentCartQty = existing ? existing.quantity : 0;
     const availableStock = product.quantity;
@@ -758,126 +949,83 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const updated = prev.map((p) => {
         const orderedItem = orderData.items.find((item) => item.product.id === p.id);
         if (orderedItem) {
-          const newQty = Math.max(0, p.quantity - orderedItem.quantity);
-          const nextProduct = { ...p, quantity: newQty };
-          saveDocument(COLLECTIONS.PRODUCTS, nextProduct);
-          return nextProduct;
+          const nextQty = Math.max(0, p.quantity - orderedItem.quantity);
+          const updatedProd = { ...p, quantity: nextQty };
+          saveDocument(COLLECTIONS.PRODUCTS, updatedProd);
+          return updatedProd;
         }
         return p;
       });
       return updated;
     });
 
-    // Record inflow transaction for pay now or down payment
-    const inflowAmount =
-      orderData.paymentType === 'down_payment' ? orderData.downPaymentAmount : orderData.totalAmount;
-
-    const newTx: Transaction = {
-      id: `tx-order-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
-      type: 'inflow',
-      category: 'Online Showcase Order',
-      description: `Order ${orderNum} payment by ${orderData.customerName} (${orderData.paymentType === 'down_payment' ? '₱100 Downpayment' : 'Full Payment'})`,
-      paymentMethod: 'gcash',
-      inflow: inflowAmount,
-      outflow: 0,
-      referenceId: orderNum,
-    };
-
-    setTransactions((prev) => [newTx, ...prev]);
-    saveDocument(COLLECTIONS.TRANSACTIONS, newTx);
-
-    // Update bale sales credit for each item
-    orderData.items.forEach((item) => {
-      const itemRev = item.product.sellingPrice * item.quantity;
-      if (item.product.baleId) {
-        setBales((prev) => {
-          const updated = prev.map((b) => (b.id === item.product.baleId ? { ...b, totalSales: b.totalSales + itemRev } : b));
-          const targetBale = updated.find((b) => b.id === item.product.baleId);
-          if (targetBale) saveDocument(COLLECTIONS.BALES, targetBale);
-          return updated;
-        });
-      }
-    });
-
     setOrders((prev) => [newOrder, ...prev]);
     saveDocument(COLLECTIONS.ORDERS, newOrder);
-    clearCart();
 
+    // Record downpayment or full payment in cashflow transactions
+    const paymentCollected =
+      orderData.paymentType === 'down_payment'
+        ? orderData.downPaymentAmount
+        : orderData.totalAmount;
+    if (paymentCollected > 0) {
+      const newTx: Transaction = {
+        id: `tx-ord-${Date.now()}`,
+        date: new Date().toISOString().split('T')[0],
+        type: 'inflow',
+        category: 'Online Showcase Order',
+        description: `Order ${orderNum} deposit from ${orderData.customerName}`,
+        paymentMethod: 'gcash',
+        inflow: paymentCollected,
+        outflow: 0,
+        referenceId: orderNum,
+      };
+      setTransactions((prev) => [newTx, ...prev]);
+      saveDocument(COLLECTIONS.TRANSACTIONS, newTx);
+    }
+
+    clearCart();
     return newOrder;
   };
 
   const updateOrderStatus = (orderId: string, status: OrderStatus) => {
     setOrders((prev) => {
-      const updated = prev.map((o) => {
-        if (o.id === orderId) {
-          if (status === 'completed' && o.remainingBalance > 0 && o.status !== 'completed') {
-            const finalBalTx: Transaction = {
-              id: `tx-bal-${Date.now()}`,
-              date: new Date().toISOString().split('T')[0],
-              type: 'inflow',
-              category: 'Online Showcase Order',
-              description: `Remaining balance payment for ${o.orderNumber} (${o.customerName})`,
-              paymentMethod: 'cash',
-              inflow: o.remainingBalance,
-              outflow: 0,
-              referenceId: o.orderNumber,
-            };
-            setTransactions((txs) => [finalBalTx, ...txs]);
-            saveDocument(COLLECTIONS.TRANSACTIONS, finalBalTx);
-            const resolved = { ...o, status, remainingBalance: 0 };
-            saveDocument(COLLECTIONS.ORDERS, resolved);
-            return resolved;
-          }
-          const next = { ...o, status };
-          saveDocument(COLLECTIONS.ORDERS, next);
-          return next;
-        }
-        return o;
-      });
+      const updated = prev.map((o) => (o.id === orderId ? { ...o, status } : o));
+      const target = updated.find((o) => o.id === orderId);
+      if (target) saveDocument(COLLECTIONS.ORDERS, target);
       return updated;
     });
   };
 
   const cancelOrder = (orderId: string) => {
     const targetOrder = orders.find((o) => o.id === orderId);
-    if (!targetOrder || targetOrder.status === 'completed' || targetOrder.status === 'cancelled') return;
+    if (!targetOrder || targetOrder.status === 'cancelled') return;
 
     // Restore inventory quantities
     setProducts((prev) => {
       const restored = prev.map((p) => {
-        const item = targetOrder.items.find((it) => it.product.id === p.id);
+        const item = targetOrder.items.find((i) => i.product.id === p.id);
         if (item) {
-          const next = { ...p, quantity: p.quantity + item.quantity };
-          saveDocument(COLLECTIONS.PRODUCTS, next);
-          return next;
+          const updatedProd = { ...p, quantity: p.quantity + item.quantity };
+          saveDocument(COLLECTIONS.PRODUCTS, updatedProd);
+          return updatedProd;
         }
         return p;
       });
       return restored;
     });
 
-    // Update order status to cancelled
-    setOrders((prev) => {
-      const updated = prev.map((o) => (o.id === orderId ? { ...o, status: 'cancelled' as OrderStatus } : o));
-      const target = updated.find((o) => o.id === orderId);
-      if (target) saveDocument(COLLECTIONS.ORDERS, target);
-      return updated;
-    });
-
-    // Track in stats
-    setTransactionStats((prev) => ({ ...prev, returned: prev.returned + 1 }));
+    updateOrderStatus(orderId, 'cancelled');
   };
 
-  // Expense Accounts & Recording
+  // Expense Accounts
   const addExpenseAccount = (accountData: Omit<ExpenseAccount, 'id' | 'totalSpent'>) => {
-    const newAcc: ExpenseAccount = {
+    const newAccount: ExpenseAccount = {
       ...accountData,
-      id: `exp-acc-${Date.now()}`,
+      id: `acc-${Date.now()}`,
       totalSpent: 0,
     };
-    setExpenseAccounts((prev) => [...prev, newAcc]);
-    saveDocument(COLLECTIONS.EXPENSE_ACCOUNTS, newAcc);
+    setExpenseAccounts((prev) => [...prev, newAccount]);
+    saveDocument(COLLECTIONS.EXPENSE_ACCOUNTS, newAccount);
   };
 
   const updateExpenseAccount = (id: string, updated: Partial<ExpenseAccount>) => {
@@ -894,36 +1042,40 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     removeDocument(COLLECTIONS.EXPENSE_ACCOUNTS, id);
   };
 
+  // Expenses
   const addExpense = (expenseData: Omit<Expense, 'id'>) => {
-    const newExp: Expense = {
+    const newExpense: Expense = {
       ...expenseData,
       id: `exp-${Date.now()}`,
     };
-    setExpenses((prev) => [newExp, ...prev]);
-    saveDocument(COLLECTIONS.EXPENSES, newExp);
+    setExpenses((prev) => [newExpense, ...prev]);
+    saveDocument(COLLECTIONS.EXPENSES, newExpense);
 
-    // Update account spent total
+    // Update account spent sum
     setExpenseAccounts((prev) => {
-      const next = prev.map((acc) =>
-        acc.id === expenseData.accountId ? { ...acc, totalSpent: acc.totalSpent + expenseData.amount } : acc
+      const updated = prev.map((acc) =>
+        acc.id === expenseData.accountId
+          ? { ...acc, totalSpent: acc.totalSpent + expenseData.amount }
+          : acc
       );
-      const targetAcc = next.find((a) => a.id === expenseData.accountId);
-      if (targetAcc) saveDocument(COLLECTIONS.EXPENSE_ACCOUNTS, targetAcc);
-      return next;
+      const target = updated.find((acc) => acc.id === expenseData.accountId);
+      if (target) saveDocument(COLLECTIONS.EXPENSE_ACCOUNTS, target);
+      return updated;
     });
 
-    const account = expenseAccounts.find((a) => a.id === expenseData.accountId);
-    // Record in transactions
+    // Create Outflow Transaction
+    const accountName =
+      expenseAccounts.find((a) => a.id === expenseData.accountId)?.name || 'Operating Expense';
     const newTx: Transaction = {
       id: `tx-exp-${Date.now()}`,
       date: expenseData.date,
       type: 'outflow',
-      category: account ? account.name : 'Operating Expense',
-      description: expenseData.description || 'Recorded expense disbursement',
+      category: accountName,
+      description: expenseData.description,
       paymentMethod: expenseData.paymentMethod,
       inflow: 0,
       outflow: expenseData.amount,
-      referenceId: newExp.id,
+      referenceId: newExpense.id,
     };
     setTransactions((prev) => [newTx, ...prev]);
     saveDocument(COLLECTIONS.TRANSACTIONS, newTx);
@@ -939,21 +1091,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const deleteExpense = (id: string) => {
-    const targetExp = expenses.find((e) => e.id === id);
-    if (targetExp) {
-      setExpenseAccounts((prev) => {
-        const next = prev.map((a) =>
-          a.id === targetExp.accountId ? { ...a, totalSpent: Math.max(0, a.totalSpent - targetExp.amount) } : a
-        );
-        const targetAcc = next.find((a) => a.id === targetExp.accountId);
-        if (targetAcc) saveDocument(COLLECTIONS.EXPENSE_ACCOUNTS, targetAcc);
-        return next;
-      });
-    }
     setExpenses((prev) => prev.filter((e) => e.id !== id));
     removeDocument(COLLECTIONS.EXPENSES, id);
   };
 
+  // Transactions
   const addTransaction = (txData: Omit<Transaction, 'id'>) => {
     const newTx: Transaction = {
       ...txData,
@@ -987,32 +1129,50 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     paymentMethod: PaymentMethod;
     amountTendered: number;
     change: number;
-  }) => {
-    const receiptNumber = `POS-${new Date().toISOString().replace(/\D/g, '').slice(0, 12)}`;
-    const custName = params.customerName?.trim() || 'Walk-in Customer';
+  }): { success: boolean; receiptData: any } => {
+    const receiptNumber = `EXINS-POS-${Math.floor(1000 + Math.random() * 9000)}`;
+    const saleDate = new Date().toISOString().split('T')[0];
 
-    // 1. Deduct product quantities
+    // Deduct product stock from database
     setProducts((prev) => {
       const updated = prev.map((p) => {
-        const posItem = params.items.find((item) => item.product.id === p.id);
-        if (posItem) {
-          const newQty = Math.max(0, p.quantity - posItem.quantity);
-          const next = { ...p, quantity: newQty };
-          saveDocument(COLLECTIONS.PRODUCTS, next);
-          return next;
+        const soldItem = params.items.find((item) => item.product.id === p.id);
+        if (soldItem) {
+          const nextQty = Math.max(0, p.quantity - soldItem.quantity);
+          const updatedProd = { ...p, quantity: nextQty };
+          saveDocument(COLLECTIONS.PRODUCTS, updatedProd);
+          return updatedProd;
         }
         return p;
       });
       return updated;
     });
 
-    // 2. Add transaction inflow
+    // Record total sales to the source bales to update break-even trackers
+    params.items.forEach((item) => {
+      if (item.product.baleId) {
+        const itemSaleRevenue = item.product.sellingPrice * item.quantity;
+        setBales((prev) => {
+          const next = prev.map((b) => {
+            if (b.id === item.product.baleId) {
+              const updatedBale = { ...b, totalSales: b.totalSales + itemSaleRevenue };
+              saveDocument(COLLECTIONS.BALES, updatedBale);
+              return updatedBale;
+            }
+            return b;
+          });
+          return next;
+        });
+      }
+    });
+
+    // Record Inflow Transaction
     const newTx: Transaction = {
       id: `tx-pos-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
+      date: saleDate,
       type: 'inflow',
       category: 'POS Storefront Sale',
-      description: `POS #${receiptNumber} - ${custName} (${params.items.length} items)`,
+      description: `POS counter sale (${params.items.reduce((s, i) => s + i.quantity, 0)} items) - ${params.customerName || 'Walk-in'}`,
       paymentMethod: params.paymentMethod,
       inflow: params.totalDue,
       outflow: 0,
@@ -1021,29 +1181,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setTransactions((prev) => [newTx, ...prev]);
     saveDocument(COLLECTIONS.TRANSACTIONS, newTx);
 
-    // 3. Credit bales totalSales
-    params.items.forEach((item) => {
-      const itemRev = item.product.sellingPrice * item.quantity;
-      if (item.product.baleId) {
-        setBales((prev) => {
-          const updated = prev.map((b) => (b.id === item.product.baleId ? { ...b, totalSales: b.totalSales + itemRev } : b));
-          const target = updated.find((b) => b.id === item.product.baleId);
-          if (target) saveDocument(COLLECTIONS.BALES, target);
-          return updated;
-        });
-      }
-    });
-
-    // 4. Update sold stats
-    const totalPieces = params.items.reduce((sum, item) => sum + item.quantity, 0);
-    setTransactionStats((prev) => ({ ...prev, sold: prev.sold + totalPieces }));
+    // Update Transaction Stats
+    setTransactionStats((prev) => ({
+      ...prev,
+      sold: prev.sold + params.items.reduce((s, i) => s + i.quantity, 0),
+    }));
 
     const receiptData = {
-      type: 'pos',
       receiptNumber,
-      date: new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }),
-      customerName: custName,
-      items: params.items,
+      date: new Date().toLocaleString('en-PH'),
+      cashier: currentUser.name,
+      customerName: params.customerName || 'Walk-in Customer',
+      items: params.items.map((i) => ({
+        id: i.product.id,
+        name: i.product.name,
+        barcode: i.product.barcode,
+        size: i.product.size,
+        price: i.product.sellingPrice,
+        quantity: i.quantity,
+        total: i.product.sellingPrice * i.quantity,
+      })),
       subtotal: params.subtotal,
       discount: params.discount,
       totalDue: params.totalDue,
@@ -1056,7 +1213,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return { success: true, receiptData };
   };
 
-  const resetAllData = () => {
+  const resetAllData = async () => {
     localStorage.removeItem(`${STORAGE_KEY}_categories`);
     localStorage.removeItem(`${STORAGE_KEY}_suppliers`);
     localStorage.removeItem(`${STORAGE_KEY}_bales`);
@@ -1070,14 +1227,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setCategories(initialCategories);
     setSuppliers(initialSuppliers);
-    setBales(initialBales);
-    setProducts(initialProducts);
-    setOrders(initialOrders);
+    setBales([]);
+    setProducts([]);
+    setOrders([]);
     setExpenseAccounts(initialExpenseAccounts);
-    setExpenses(initialExpenses);
-    setTransactions(initialTransactions);
-    setTransactionStats(initialTransactionStats);
+    setExpenses([]);
+    setTransactions([]);
+    setTransactionStats({ sold: 0, returned: 0, damaged: 0, lost: 0 });
     setCart([]);
+
+    // Clear Firestore database collections
+    await clearAllInventoryAndFinancialRecords();
   };
 
   return (
@@ -1093,6 +1253,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         authError,
         clearAuthError,
         signInWithEmail,
+        signInWithGoogle,
+        completeGoogleSignUp,
         signUpWithEmail,
         signOutCurrentUser,
         activeTab,

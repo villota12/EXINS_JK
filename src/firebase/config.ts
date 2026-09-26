@@ -6,6 +6,8 @@ import {
   signOut,
   signInAnonymously,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
   User as FirebaseUser,
 } from 'firebase/auth';
 import {
@@ -43,7 +45,6 @@ export const checkFirestoreConnection = async (): Promise<boolean> => {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firebase client is offline or initializing.', error);
     }
-    // Return true if connected or fallback
     return isConnected;
   }
 };
@@ -57,11 +58,14 @@ export {
   signOut,
   signInAnonymously,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
   collection,
   getDocs,
   setDoc,
   deleteDoc,
   onSnapshot,
   doc,
+  getDocFromServer,
 };
 export type { FirebaseUser };

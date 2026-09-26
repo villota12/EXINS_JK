@@ -8,14 +8,6 @@ import {
   onSnapshot,
 } from './config';
 import {
-  Category,
-  Supplier,
-  Bale,
-  Product,
-  Order,
-  ExpenseAccount,
-  Expense,
-  Transaction,
   User,
 } from '../types';
 
@@ -57,6 +49,32 @@ export async function removeDocument(
   }
 }
 
+// Delete all documents in a collection
+export async function clearCollection(collectionName: string): Promise<void> {
+  try {
+    const colRef = collection(db, collectionName);
+    const snap = await getDocs(colRef);
+    const deletePromises = snap.docs.map((docSnap) => deleteDoc(docSnap.ref));
+    await Promise.all(deletePromises);
+    console.log(`Cleared all records from Firestore ${collectionName} collection.`);
+  } catch (error) {
+    console.warn(`Failed to clear collection ${collectionName}:`, error);
+  }
+}
+
+// Purge all records of inventory, orders, expenses, and transactions while keeping user accounts
+export async function clearAllInventoryAndFinancialRecords(): Promise<void> {
+  await Promise.all([
+    clearCollection(COLLECTIONS.BALES),
+    clearCollection(COLLECTIONS.PRODUCTS),
+    clearCollection(COLLECTIONS.ORDERS),
+    clearCollection(COLLECTIONS.EXPENSES),
+    clearCollection(COLLECTIONS.TRANSACTIONS),
+    clearCollection(COLLECTIONS.SUPPLIERS),
+  ]);
+  console.log('Successfully wiped inventory, orders, suppliers, and financial history from Firestore.');
+}
+
 // Subscribe to collection changes in real time
 export function subscribeToCollection<T>(
   collectionName: string,
@@ -80,23 +98,13 @@ export function subscribeToCollection<T>(
   );
 }
 
-// Seed initial dataset if collection is empty
+// Seed initial dataset if collection is empty (No-op: user requested 100% clean database)
 export async function seedCollectionIfEmpty<T extends { id: string }>(
-  collectionName: string,
-  initialItems: T[]
+  _collectionName: string,
+  _initialItems: T[]
 ): Promise<void> {
-  try {
-    const colRef = collection(db, collectionName);
-    const snap = await getDocs(colRef);
-    if (snap.empty && initialItems.length > 0) {
-      console.log(`Seeding initial data for ${collectionName}...`);
-      for (const item of initialItems) {
-        await setDoc(doc(db, collectionName, item.id), item);
-      }
-    }
-  } catch (error) {
-    console.warn(`Seeding ${collectionName} note:`, error);
-  }
+  // Pure empty database requested: do not seed
+  return;
 }
 
 // Save user profile in Firestore

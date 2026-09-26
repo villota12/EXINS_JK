@@ -45,15 +45,15 @@ export const InventoryManagement: React.FC = () => {
     deleteProduct,
   } = useStore();
 
-  // Permitted tabs based on role:
-  // Both Staff and Owner can access and manage: 'bales', 'categories', 'products', 'suppliers'
+  // Permitted tabs based on role in requested order:
+  // (Bale Supplier, Product Categories, Bale Management, Product List)
   const allowedTabs = useMemo(() => {
     return [
-      { id: 'bales', label: 'Bale Management', icon: Layers },
+      { id: 'suppliers', label: 'Bale Supplier', icon: Truck },
       { id: 'categories', label: 'Product Categories', icon: Package },
+      { id: 'bales', label: 'Bale Management', icon: Layers },
       { id: 'products', label: 'Product List', icon: ListOrdered },
-      { id: 'suppliers', label: 'Bale Suppliers', icon: Truck },
-    ] as { id: 'bales' | 'categories' | 'products' | 'suppliers'; label: string; icon: any }[];
+    ] as { id: 'suppliers' | 'categories' | 'bales' | 'products'; label: string; icon: any }[];
   }, []);
 
   const currentTab = inventoryTab;
@@ -1026,7 +1026,7 @@ export const InventoryManagement: React.FC = () => {
               <div>
                 <h2 className="text-lg font-black">Product Inventory Masterlist</h2>
                 <p className="text-xs text-stone-400">
-                  Search and manage stock quantities, barcode tags, and pricing.
+                  Search and manage stock quantities, auto-generated product codes, and pricing.
                 </p>
               </div>
 
@@ -1035,7 +1035,7 @@ export const InventoryManagement: React.FC = () => {
                   <Search className="w-4 h-4 text-stone-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
-                    placeholder="Search product, barcode, size..."
+                    placeholder="Search product name, code, size..."
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
                     className={`w-full pl-9 pr-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-2 focus:ring-orange-500 ${
@@ -1055,7 +1055,7 @@ export const InventoryManagement: React.FC = () => {
                       isDark ? 'border-stone-800 text-stone-400' : 'border-stone-200 text-stone-500'
                     } uppercase text-[10px] tracking-wider`}
                   >
-                    <th className="py-3 px-3 font-bold">Image & Barcode</th>
+                    <th className="py-3 px-3 font-bold">Image & Product Code</th>
                     <th className="py-3 px-3 font-bold">Name & Size</th>
                     <th className="py-3 px-3 font-bold">Category</th>
                     <th className="py-3 px-3 font-bold">Source Bale</th>

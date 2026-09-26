@@ -200,18 +200,18 @@ export const POS: React.FC<POSProps> = ({ onOpenReceipt }) => {
             </div>
             <h1 className="text-2xl font-black tracking-tight">EXINS POS Terminal</h1>
             <p className="text-xs text-stone-400 mt-0.5">
-              Type barcode tag directly (e.g. <strong className="text-orange-300">EXINS-1049</strong>) or click clothing from catalog.
+              Type product code directly (e.g. <strong className="text-orange-300">EXINS-1049</strong>) or click clothing from catalog.
             </p>
           </div>
 
-          {/* Barcode Direct Entry Form: "no need for scan just type it in" */}
+          {/* Product Code Direct Entry Form */}
           <form onSubmit={handleBarcodeSubmit} className="flex items-center gap-2 w-full md:w-96">
             <div className="relative flex-1">
-              <Barcode className="w-5 h-5 text-orange-400 absolute left-3.5 top-3" />
+              <Tag className="w-5 h-5 text-orange-400 absolute left-3.5 top-3" />
               <input
                 ref={barcodeInputRef}
                 type="text"
-                placeholder="Enter Barcode Code (e.g. EXINS-1049)..."
+                placeholder="Enter Product Code (e.g. EXINS-1049)..."
                 value={barcodeInput}
                 onChange={(e) => setBarcodeInput(e.target.value)}
                 className={`w-full pl-11 pr-4 py-2.5 rounded-2xl text-xs font-mono font-bold uppercase border focus:outline-none focus:ring-2 focus:ring-orange-500 ${

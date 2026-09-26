@@ -231,21 +231,23 @@ export const FinanceManagement: React.FC = () => {
   };
 
   const monthlyComparisonData = useMemo(() => {
-    const months = [
-      { key: '2026-05', label: 'May 2026', short: 'May' },
-      { key: '2026-06', label: 'Jun 2026', short: 'Jun' },
-      { key: '2026-07', label: 'Jul 2026', short: 'Jul' },
-      { key: '2026-08', label: 'Aug 2026', short: 'Aug' },
-      { key: '2026-09', label: 'Sep 2026', short: 'Sep' },
-    ];
+    // Generate the last 5 calendar months ending in current month
+    const months: { key: string; label: string; short: string }[] = [];
+    const today = new Date();
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      months.push({
+        key,
+        label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        short: d.toLocaleDateString('en-US', { month: 'short' }),
+      });
+    }
 
-    const monthMap: Record<string, { sales: number; expense: number }> = {
-      '2026-05': { sales: 68400, expense: 31200 },
-      '2026-06': { sales: 79200, expense: 36400 },
-      '2026-07': { sales: 88500, expense: 41800 },
-      '2026-08': { sales: 94800, expense: 43500 },
-      '2026-09': { sales: 0, expense: 0 },
-    };
+    const monthMap: Record<string, { sales: number; expense: number }> = {};
+    months.forEach((m) => {
+      monthMap[m.key] = { sales: 0, expense: 0 };
+    });
 
     transactions.forEach((t) => {
       const monthKey = t.date.slice(0, 7);
